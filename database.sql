@@ -120,134 +120,229 @@ CREATE TABLE IF NOT EXISTS "faturamentoHistorico" (
 ALTER TABLE "faturamentoHistorico" ENABLE ROW LEVEL SECURITY;
 
 
--- ==================== POLÍTICAS RLS (SEGURANÇA EXTREMA) ====================
+-- ==================== FUNÇÕES AUXILIARES DE SESSÃO (BULA RLS E RECURSÃO) ====================
+
+-- Função para obter o ID do usuário logado enviado via header x-logged-user-id
+CREATE OR REPLACE FUNCTION get_logged_user_id()
+RETURNS BIGINT AS $$
+BEGIN
+    RETURN NULLIF(current_setting('request.headers', true)::json->>'x-logged-user-id', '')::bigint;
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Função para obter a role do usuário logado sem causar recursão infinita (SECURITY DEFINER)
+CREATE OR REPLACE FUNCTION get_logged_user_role()
+RETURNS TEXT AS $$
+DECLARE
+    v_role TEXT;
+    v_user_id BIGINT;
+BEGIN
+    v_user_id := get_logged_user_id();
+    IF v_user_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+    
+    SELECT r.role INTO v_role FROM "users" r WHERE r.id = v_user_id;
+    RETURN v_role;
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- ==================== POLÍTICAS RLS (SEGURANÇA EXTREMA COM FUNÇÕES AUXILIARES) ====================
+
+-- 1. Remover políticas antigas para evitar erros de duplicidade
+DROP POLICY IF EXISTS "Leitura pública de usuários" ON "users";
+DROP POLICY IF EXISTS "Apenas diretoria altera usuários" ON "users";
+DROP POLICY IF EXISTS "Inserção inicial ou diretoria em users" ON "users";
+DROP POLICY IF EXISTS "Edição apenas diretoria em users" ON "users";
+DROP POLICY IF EXISTS "Deleção apenas diretoria em users" ON "users";
+
+DROP POLICY IF EXISTS "Leitura pública de produtos" ON "products";
+DROP POLICY IF EXISTS "Apenas diretoria altera produtos" ON "products";
+DROP POLICY IF EXISTS "Inserção de produtos por diretoria" ON "products";
+DROP POLICY IF EXISTS "Edição de produtos por diretoria" ON "products";
+DROP POLICY IF EXISTS "Deleção de produtos por diretoria" ON "products";
+
+DROP POLICY IF EXISTS "Leitura pública de estágios" ON "stages";
+DROP POLICY IF EXISTS "Apenas diretoria altera estágios" ON "stages";
+DROP POLICY IF EXISTS "Inserção de estágios por diretoria" ON "stages";
+DROP POLICY IF EXISTS "Edição de estágios por diretoria" ON "stages";
+DROP POLICY IF EXISTS "Deleção de estágios por diretoria" ON "stages";
+
+DROP POLICY IF EXISTS "Visualização de leads conforme hierarquia" ON "leads";
+DROP POLICY IF EXISTS "Inserção e edição de leads" ON "leads";
+DROP POLICY IF EXISTS "Inserção de leads" ON "leads";
+DROP POLICY IF EXISTS "Edição de leads" ON "leads";
+DROP POLICY IF EXISTS "Deleção de leads" ON "leads";
+
+DROP POLICY IF EXISTS "Visualização de clientes conforme hierarquia" ON "clients";
+DROP POLICY IF EXISTS "Modificação de clientes" ON "clients";
+DROP POLICY IF EXISTS "Inserção de clientes por diretoria" ON "clients";
+DROP POLICY IF EXISTS "Edição de clientes por diretoria" ON "clients";
+DROP POLICY IF EXISTS "Deleção de clientes por diretoria" ON "clients";
+
+DROP POLICY IF EXISTS "Visualização de aportes conforme hierarquia" ON "aportes";
+DROP POLICY IF EXISTS "Criação de aportes pelo assessor" ON "aportes";
+DROP POLICY IF EXISTS "Apenas diretoria altera aportes e homologa" ON "aportes";
+DROP POLICY IF EXISTS "Deleção de aportes por diretoria" ON "aportes";
+
+DROP POLICY IF EXISTS "Visualização de faturamento conforme hierarquia" ON "faturamentoHistorico";
+DROP POLICY IF EXISTS "Apenas diretoria insere faturamento historico" ON "faturamentoHistorico";
+DROP POLICY IF EXISTS "Inserção de faturamento por diretoria" ON "faturamentoHistorico";
+DROP POLICY IF EXISTS "Edição de faturamento por diretoria" ON "faturamentoHistorico";
+DROP POLICY IF EXISTS "Deleção de faturamento por diretoria" ON "faturamentoHistorico";
+
+
+-- 2. Criar novas políticas limpas e seguras
 
 -- Regras para a tabela USERS
 CREATE POLICY "Leitura pública de usuários" ON "users" FOR SELECT USING (true);
-CREATE POLICY "Apenas diretoria altera usuários" ON "users" FOR ALL USING (
-    EXISTS (
-        SELECT 1 FROM "users" u 
-        WHERE u.id = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint 
-        AND u.role = 'diretoria'
-    )
+
+CREATE POLICY "Inserção inicial ou diretoria em users" ON "users" FOR INSERT WITH CHECK (
+    (NOT EXISTS (SELECT 1 FROM "users"))
+    OR 
+    get_logged_user_role() = 'diretoria'
 );
+
+CREATE POLICY "Edição apenas diretoria em users" ON "users" FOR UPDATE USING (
+    get_logged_user_role() = 'diretoria'
+);
+
+CREATE POLICY "Deleção apenas diretoria em users" ON "users" FOR DELETE USING (
+    get_logged_user_role() = 'diretoria'
+);
+
 
 -- Regras para a tabela PRODUCTS
 CREATE POLICY "Leitura pública de produtos" ON "products" FOR SELECT USING (true);
-CREATE POLICY "Apenas diretoria altera produtos" ON "products" FOR ALL USING (
-    EXISTS (
-        SELECT 1 FROM "users" u 
-        WHERE u.id = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint 
-        AND u.role = 'diretoria'
-    )
+
+CREATE POLICY "Inserção de produtos por diretoria" ON "products" FOR INSERT WITH CHECK (
+    get_logged_user_role() = 'diretoria'
 );
+
+CREATE POLICY "Edição de produtos por diretoria" ON "products" FOR UPDATE USING (
+    get_logged_user_role() = 'diretoria'
+);
+
+CREATE POLICY "Deleção de produtos por diretoria" ON "products" FOR DELETE USING (
+    get_logged_user_role() = 'diretoria'
+);
+
 
 -- Regras para a tabela STAGES
 CREATE POLICY "Leitura pública de estágios" ON "stages" FOR SELECT USING (true);
-CREATE POLICY "Apenas diretoria altera estágios" ON "stages" FOR ALL USING (
-    EXISTS (
-        SELECT 1 FROM "users" u 
-        WHERE u.id = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint 
-        AND u.role = 'diretoria'
-    )
+
+CREATE POLICY "Inserção de estágios por diretoria" ON "stages" FOR INSERT WITH CHECK (
+    get_logged_user_role() = 'diretoria'
 );
 
--- Regras para a tabela LEADS (Hierarquia de Acesso)
-CREATE POLICY "Visualização de leads conforme hierarquia" ON "leads"
-    FOR SELECT USING (
-        "agentId" = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint
-        OR "leaderId" = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint
-        OR EXISTS (
-            SELECT 1 FROM "users" u 
-            WHERE u.id = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint 
-            AND u.role = 'diretoria'
-        )
-    );
+CREATE POLICY "Edição de estágios por diretoria" ON "stages" FOR UPDATE USING (
+    get_logged_user_role() = 'diretoria'
+);
 
-CREATE POLICY "Inserção e edição de leads" ON "leads"
-    FOR ALL USING (
-        "agentId" = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint
-        OR "leaderId" = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint
-        OR EXISTS (
-            SELECT 1 FROM "users" u 
-            WHERE u.id = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint 
-            AND u.role = 'diretoria'
-        )
-    );
+CREATE POLICY "Deleção de estágios por diretoria" ON "stages" FOR DELETE USING (
+    get_logged_user_role() = 'diretoria'
+);
+
+
+-- Regras para a tabela LEADS (Hierarquia de Acesso)
+CREATE POLICY "Visualização de leads conforme hierarquia" ON "leads" FOR SELECT USING (
+    "agentId" = get_logged_user_id()
+    OR "leaderId" = get_logged_user_id()
+    OR get_logged_user_role() = 'diretoria'
+);
+
+CREATE POLICY "Inserção de leads" ON "leads" FOR INSERT WITH CHECK (
+    "agentId" = get_logged_user_id()
+    OR "leaderId" = get_logged_user_id()
+    OR get_logged_user_role() = 'diretoria'
+);
+
+CREATE POLICY "Edição de leads" ON "leads" FOR UPDATE USING (
+    "agentId" = get_logged_user_id()
+    OR "leaderId" = get_logged_user_id()
+    OR get_logged_user_role() = 'diretoria'
+);
+
+CREATE POLICY "Deleção de leads" ON "leads" FOR DELETE USING (
+    "agentId" = get_logged_user_id()
+    OR "leaderId" = get_logged_user_id()
+    OR get_logged_user_role() = 'diretoria'
+);
+
 
 -- Regras para a tabela CLIENTS (Hierarquia de Acesso)
-CREATE POLICY "Visualização de clientes conforme hierarquia" ON "clients"
-    FOR SELECT USING (
-        "agentId" = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint
-        OR "leaderId" = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint
-        OR EXISTS (
-            SELECT 1 FROM "users" u 
-            WHERE u.id = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint 
-            AND u.role = 'diretoria'
-        )
-    );
+CREATE POLICY "Visualização de clientes conforme hierarquia" ON "clients" FOR SELECT USING (
+    "agentId" = get_logged_user_id()
+    OR "leaderId" = get_logged_user_id()
+    OR get_logged_user_role() = 'diretoria'
+);
 
-CREATE POLICY "Modificação de clientes" ON "clients"
-    FOR ALL USING (
-        EXISTS (
-            SELECT 1 FROM "users" u 
-            WHERE u.id = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint 
-            AND u.role = 'diretoria'
-        )
-    );
+CREATE POLICY "Inserção de clientes por diretoria" ON "clients" FOR INSERT WITH CHECK (
+    get_logged_user_role() = 'diretoria'
+);
+
+CREATE POLICY "Edição de clientes por diretoria" ON "clients" FOR UPDATE USING (
+    get_logged_user_role() = 'diretoria'
+);
+
+CREATE POLICY "Deleção de clientes por diretoria" ON "clients" FOR DELETE USING (
+    get_logged_user_role() = 'diretoria'
+);
+
 
 -- Regras para a tabela APORTES
-CREATE POLICY "Visualização de aportes conforme hierarquia" ON "aportes"
-    FOR SELECT USING (
-        "agentId" = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint
-        OR "leaderId" = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint
-        OR EXISTS (
-            SELECT 1 FROM "users" u 
-            WHERE u.id = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint 
-            AND u.role = 'diretoria'
-        )
-    );
+CREATE POLICY "Visualização de aportes conforme hierarquia" ON "aportes" FOR SELECT USING (
+    "agentId" = get_logged_user_id()
+    OR "leaderId" = get_logged_user_id()
+    OR get_logged_user_role() = 'diretoria'
+);
 
-CREATE POLICY "Criação de aportes pelo assessor" ON "aportes"
-    FOR INSERT WITH CHECK (
-        "agentId" = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint
-    );
+CREATE POLICY "Criação de aportes pelo assessor" ON "aportes" FOR INSERT WITH CHECK (
+    "agentId" = get_logged_user_id()
+    OR get_logged_user_role() = 'diretoria'
+);
 
-CREATE POLICY "Apenas diretoria altera aportes e homologa" ON "aportes"
-    FOR UPDATE USING (
-        EXISTS (
-            SELECT 1 FROM "users" u 
-            WHERE u.id = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint 
-            AND u.role = 'diretoria'
-        )
-    );
+CREATE POLICY "Apenas diretoria altera aportes e homologa" ON "aportes" FOR UPDATE USING (
+    get_logged_user_role() = 'diretoria'
+);
+
+CREATE POLICY "Deleção de aportes por diretoria" ON "aportes" FOR DELETE USING (
+    get_logged_user_role() = 'diretoria'
+);
+
 
 -- Regras para a tabela FATURAMENTO HISTORICO
-CREATE POLICY "Visualização de faturamento conforme hierarquia" ON "faturamentoHistorico"
-    FOR SELECT USING (
-        EXISTS (
-            SELECT 1 FROM "clients" c
-            WHERE c.code = "clientCode"
-            AND (
-                c."agentId" = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint
-                OR c."leaderId" = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint
-            )
+CREATE POLICY "Visualização de faturamento conforme hierarquia" ON "faturamentoHistorico" FOR SELECT USING (
+    EXISTS (
+        SELECT 1 FROM "clients" c
+        WHERE c.code = "clientCode"
+        AND (
+            c."agentId" = get_logged_user_id()
+            OR c."leaderId" = get_logged_user_id()
         )
-        OR EXISTS (
-            SELECT 1 FROM "users" u 
-            WHERE u.id = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint 
-            AND u.role = 'diretoria'
-        )
-    );
+    )
+    OR get_logged_user_role() = 'diretoria'
+);
 
-CREATE POLICY "Apenas diretoria insere faturamento historico" ON "faturamentoHistorico"
-    FOR ALL USING (
-        EXISTS (
-            SELECT 1 FROM "users" u 
-            WHERE u.id = NULLIF(current_setting('request.jwt.claim.sub', true), '')::bigint 
-            AND u.role = 'diretoria'
-        )
-    );
+CREATE POLICY "Inserção de faturamento por diretoria" ON "faturamentoHistorico" FOR INSERT WITH CHECK (
+    get_logged_user_role() = 'diretoria'
+);
+
+CREATE POLICY "Edição de faturamento por diretoria" ON "faturamentoHistorico" FOR UPDATE USING (
+    get_logged_user_role() = 'diretoria'
+);
+
+CREATE POLICY "Deleção de faturamento por diretoria" ON "faturamentoHistorico" FOR DELETE USING (
+    get_logged_user_role() = 'diretoria'
+);
+
 
 
 -- ==================== GATILHOS DE SEGURANÇA (TRIGGER) ====================

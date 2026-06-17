@@ -43,7 +43,16 @@ async function initApp() {
 
     if (supaUrl && supaKey && window.supabase) {
         try {
-            supabaseClient = window.supabase.createClient(supaUrl, supaKey);
+            const loggedUserId = sessionStorage.getItem('strivo_logged_user_id');
+            const options = {};
+            if (loggedUserId) {
+                options.global = {
+                    headers: {
+                        'x-logged-user-id': loggedUserId.toString()
+                    }
+                };
+            }
+            supabaseClient = window.supabase.createClient(supaUrl, supaKey, options);
             supabaseMode = 'CLOUD';
             
             if (cloudStatusBadge) {
