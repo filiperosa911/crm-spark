@@ -236,6 +236,17 @@ function switchView(viewId) {
     const activeView = document.getElementById(`view-${viewId}`);
     if (activeView) activeView.classList.remove('hidden');
 
+    // Update active class on sidebar navigation links to keep them in sync
+    document.querySelectorAll('.sidebar-link').forEach(link => {
+        if (link.getAttribute('data-target') === viewId) {
+            link.classList.add('active');
+        } else {
+            // Do not affect the logout button or other action buttons
+            if (link.getAttribute('onclick') && link.getAttribute('onclick').includes('logoutUser')) return;
+            link.classList.remove('active');
+        }
+    });
+
     // Refresh view specific content
     if (viewId === 'dashboard') renderDashboard();
     else if (viewId === 'crm') renderCRM();
