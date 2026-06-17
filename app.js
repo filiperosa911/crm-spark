@@ -72,6 +72,18 @@ async function initApp() {
             console.error("Erro de conexão ao Supabase. Revertendo para local:", err);
             supabaseMode = 'LOCAL';
             db = loadDataStore();
+            
+            // Reset status badge and migration button to show offline state
+            if (cloudStatusBadge) {
+                cloudStatusBadge.innerText = 'Erro de Conexão (Offline)';
+                cloudStatusBadge.className = 'w-fit px-2.5 py-1 rounded text-[10px] font-mono font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider';
+            }
+            if (btnMigrate) {
+                btnMigrate.disabled = true;
+                btnMigrate.classList.add('bg-slate-800', 'cursor-not-allowed', 'text-zinc-500');
+                btnMigrate.classList.remove('bg-zinc-800', 'hover:bg-zinc-700', 'text-zinc-300');
+            }
+            if (btnDisconnect) btnDisconnect.classList.add('hidden');
         }
     } else {
         supabaseMode = 'LOCAL';
