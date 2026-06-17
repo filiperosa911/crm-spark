@@ -19,8 +19,17 @@ async function initApp() {
     db = loadDataStore();
     
     // Check Supabase Configuration
-    const supaUrl = localStorage.getItem('strivo_supabase_url');
-    const supaKey = localStorage.getItem('strivo_supabase_key');
+    let supaUrl = localStorage.getItem('strivo_supabase_url');
+    let supaKey = localStorage.getItem('strivo_supabase_key');
+    
+    if (supaUrl) {
+        supaUrl = supaUrl.trim().replace(/\/$/, "").replace(/\/rest\/v1\/?$/, "");
+        localStorage.setItem('strivo_supabase_url', supaUrl);
+    }
+    if (supaKey) {
+        supaKey = supaKey.trim();
+        localStorage.setItem('strivo_supabase_key', supaKey);
+    }
     
     const cloudStatusBadge = document.getElementById('cloud-status-badge');
     const btnMigrate = document.getElementById('btn-migrate-data');
@@ -2324,13 +2333,16 @@ async function loadDataStoreFromCloud() {
 
 function saveSupabaseConfig(event) {
     if (event) event.preventDefault();
-    const url = document.getElementById('supa-url').value.trim();
-    const key = document.getElementById('supa-anon-key').value.trim();
+    let url = document.getElementById('supa-url').value.trim();
+    let key = document.getElementById('supa-anon-key').value.trim();
     
     if (!url || !key) {
         alert("Por favor, preencha a URL e a Chave Anon do seu Supabase.");
         return;
     }
+    
+    // Sanitize URL to remove trailing slash or /rest/v1 suffixes
+    url = url.replace(/\/$/, "").replace(/\/rest\/v1\/?$/, "").trim();
     
     localStorage.setItem('strivo_supabase_url', url);
     localStorage.setItem('strivo_supabase_key', key);

@@ -9,3 +9,8 @@ desktop.ini
 
 # Node
 node_modules/
+
+# Local configuration and notes
+supabase.md
+pendencias
+
