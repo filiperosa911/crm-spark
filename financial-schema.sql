@@ -107,47 +107,25 @@ CREATE TABLE IF NOT EXISTS financial_cashflows (
 );
 
 -- ------------------------------------------------------------
--- 4. ROW LEVEL SECURITY
+-- 4. ACESSO (sem RLS — padrão do restante do CRM)
+-- O app usa chave anon com acesso direto, sem JWT de usuário.
+-- Controle de acesso é feito pela lógica do app (sessionStorage).
 -- ------------------------------------------------------------
-ALTER TABLE financial_plans     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE financial_scenarios ENABLE ROW LEVEL SECURITY;
-ALTER TABLE financial_cashflows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE financial_plans     DISABLE ROW LEVEL SECURITY;
+ALTER TABLE financial_scenarios DISABLE ROW LEVEL SECURITY;
+ALTER TABLE financial_cashflows DISABLE ROW LEVEL SECURITY;
 
--- Policies (drop + create para idempotência)
-DROP POLICY IF EXISTS "financial_plans_select" ON financial_plans;
-CREATE POLICY "financial_plans_select" ON financial_plans FOR SELECT USING (
-  agent_id  = (get_logged_user_id())::integer
-  OR leader_id = (get_logged_user_id())::integer
-  OR (SELECT role FROM users WHERE id = (get_logged_user_id())::integer) IN ('diretoria', 'lideranca')
-);
+-- Remove policies antigas caso existam de execução anterior
+DROP POLICY IF EXISTS "financial_plans_select"   ON financial_plans;
+DROP POLICY IF EXISTS "financial_plans_insert"   ON financial_plans;
+DROP POLICY IF EXISTS "financial_plans_update"   ON financial_plans;
+DROP POLICY IF EXISTS "financial_plans_delete"   ON financial_plans;
+DROP POLICY IF EXISTS "financial_scenarios_all"  ON financial_scenarios;
+DROP POLICY IF EXISTS "financial_cashflows_all"  ON financial_cashflows;
 
-DROP POLICY IF EXISTS "financial_plans_insert" ON financial_plans;
-CREATE POLICY "financial_plans_insert" ON financial_plans FOR INSERT WITH CHECK (
-  agent_id = (get_logged_user_id())::integer
-  OR (SELECT role FROM users WHERE id = (get_logged_user_id())::integer) IN ('diretoria', 'lideranca')
-);
-
-DROP POLICY IF EXISTS "financial_plans_update" ON financial_plans;
-CREATE POLICY "financial_plans_update" ON financial_plans FOR UPDATE USING (
-  agent_id = (get_logged_user_id())::integer
-  OR (SELECT role FROM users WHERE id = (get_logged_user_id())::integer) IN ('diretoria', 'lideranca')
-);
-
-DROP POLICY IF EXISTS "financial_plans_delete" ON financial_plans;
-CREATE POLICY "financial_plans_delete" ON financial_plans FOR DELETE USING (
-  agent_id = (get_logged_user_id())::integer
-  OR (SELECT role FROM users WHERE id = (get_logged_user_id())::integer) = 'diretoria'
-);
-
-DROP POLICY IF EXISTS "financial_scenarios_all" ON financial_scenarios;
-CREATE POLICY "financial_scenarios_all" ON financial_scenarios FOR ALL USING (
-  plan_id IN (SELECT id FROM financial_plans)
-);
-
-DROP POLICY IF EXISTS "financial_cashflows_all" ON financial_cashflows;
-CREATE POLICY "financial_cashflows_all" ON financial_cashflows FOR ALL USING (
-  scenario_id IN (SELECT id FROM financial_scenarios)
-);
+-- Garante acesso completo para a chave anon (mesmo padrão das outras tabelas)
+GRANT ALL ON financial_plans, financial_scenarios, financial_cashflows TO anon;
+GRANT ALL ON financial_plans, financial_scenarios, financial_cashflows TO authenticated;
 
 -- ------------------------------------------------------------
 -- 5. UPDATED_AT AUTOMÁTICO

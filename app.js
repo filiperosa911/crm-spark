@@ -3116,7 +3116,6 @@ async function savePlanejamento() {
         exibir_comparacao_cenarios:   document.getElementById('rel-comparacao').checked,
         exibir_protecao_sugerida:     document.getElementById('rel-protecao').checked,
         exibir_sucessao_vitalicia:    document.getElementById('rel-sucessao').checked,
-        data_simulacao: document.getElementById('planning-data-simulacao').value,
     };
 
     try {
@@ -3142,7 +3141,8 @@ async function savePlanejamento() {
         logSystem(`Planejamento de ${planData.client_name} salvo com sucesso.`);
     } catch (err) {
         console.error('Erro ao salvar planejamento:', err);
-        alert('Erro ao salvar. Verifique a conexão com o Supabase.');
+        const msg = err?.message || err?.details || JSON.stringify(err) || 'erro desconhecido';
+        alert(`Erro ao salvar planejamento:\n${msg}`);
     }
 }
 
