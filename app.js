@@ -1,4 +1,4 @@
-// SPARK PLATFORM // CORE BUSINESS LOGIC & INTERACTION
+﻿// SPARK PLATFORM // CORE BUSINESS LOGIC & INTERACTION
 
 // Global State
 let db = loadDataStore();
@@ -52,6 +52,11 @@ async function initApp() {
             }
             supabaseClient = window.supabase.createClient(supaUrl, supaKey, options);
             supabaseMode = 'CLOUD';
+
+            // Detect password recovery link (user clicked reset email link)
+            supabaseClient.auth.onAuthStateChange((event) => {
+                if (event === 'PASSWORD_RECOVERY') showPasswordResetScreen();
+            });
             
             if (cloudStatusBadge) {
                 cloudStatusBadge.innerText = 'Modo Nuvem (Online)';
@@ -121,8 +126,20 @@ async function initApp() {
         if (icon) icon.innerText = '☀️ Modo Claro';
     }
 
-    // CHECK SESSION
-    const loggedUserId = sessionStorage.getItem('strivo_logged_user_id');
+    // CHECK SESSION — sessionStorage first, then Supabase Auth as fallback
+    let loggedUserId = sessionStorage.getItem('strivo_logged_user_id');
+
+    if (!loggedUserId && supabaseMode === 'CLOUD' && supabaseClient) {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session && session.user && session.user.email) {
+            const byEmail = db.users.find(u => u.email && u.email.toLowerCase() === session.user.email.toLowerCase());
+            if (byEmail) {
+                loggedUserId = String(byEmail.id);
+                sessionStorage.setItem('strivo_logged_user_id', loggedUserId);
+            }
+        }
+    }
+
     if (!loggedUserId) {
         showLoginScreen();
         return;
@@ -1690,6 +1707,16 @@ function saveUser(event) {
             status: "active"
         });
         logSystem(`Novo usuário cadastrado: ${name} (${cargo})`);
+        if (supabaseMode === 'CLOUD') {
+            setTimeout(() => alert(
+                `Usuário "${name}" cadastrado no CRM.\n\n` +
+                `ATENÇÃO: Para que este usuário consiga fazer login, você deve criar a conta de autenticação dele manualmente no painel do Supabase:\n\n` +
+                `1. Acesse app.supabase.com → seu projeto → Authentication → Users\n` +
+                `2. Clique em "Add user" → "Create new user"\n` +
+                `3. Use o e-mail: ${email}\n` +
+                `4. Defina uma senha temporária e comunique ao usuário`
+            ), 300);
+        }
     }
 
     saveDataStore(db);
@@ -1777,30 +1804,48 @@ function openUserModalAdminEdit(userId) {
     editUserPrompt(userId);
 }
 
-function resetUserPassword(userId) {
+async function resetUserPassword(userId) {
     const user = db.users.find(u => u.id === userId);
     if (!user) return;
 
-    const adjectives = ['Spark', 'Invest', 'Capital', 'Assets', 'Wealth'];
-    const nums = Math.floor(100 + Math.random() * 900);
-    const newPassword = `${adjectives[Math.floor(Math.random() * adjectives.length)]}${nums}`;
-
-    user.password = newPassword;
-    saveDataStore(db);
-    logSystem(`Senha de "${user.name}" redefinida pelo administrador.`);
-
     const panel = document.getElementById('users-mgmt-credential-panel');
     const content = document.getElementById('users-mgmt-credential-content');
-    if (panel && content) {
-        content.innerHTML = `
-            <div class="space-y-1">
-                <div class="text-zinc-400 text-[10px]">Usuário: <span class="text-white">${user.username || user.email}</span></div>
-                <div class="text-zinc-400 text-[10px]">Nova Senha: <span class="text-emerald-400 font-bold text-sm">${newPassword}</span></div>
-                <div class="text-zinc-500 text-[9px] mt-2 font-mono">Comunique as novas credenciais ao usuário com segurança.</div>
-            </div>
-        `;
-        panel.classList.remove('hidden');
-        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    if (supabaseMode === 'CLOUD' && supabaseClient && user.email) {
+        const redirectTo = window.location.origin + window.location.pathname;
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(user.email, { redirectTo });
+        const msg = error
+            ? `<div class="text-rose-400 text-[10px]">Erro ao enviar e-mail: ${error.message}</div>`
+            : `<div class="space-y-1">
+                <div class="text-zinc-400 text-[10px]">E-mail de redefinição enviado para:</div>
+                <div class="text-emerald-400 font-bold text-sm">${user.email}</div>
+                <div class="text-zinc-500 text-[9px] mt-2 font-mono">O usuário receberá um link para criar nova senha.</div>
+               </div>`;
+        if (panel && content) {
+            content.innerHTML = msg;
+            panel.classList.remove('hidden');
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        if (!error) logSystem(`Link de reset de senha enviado para "${user.name}" (${user.email}).`);
+    } else {
+        // Fallback local: gera senha temporária
+        const adjectives = ['Spark', 'Invest', 'Capital', 'Assets', 'Wealth'];
+        const nums = Math.floor(100 + Math.random() * 900);
+        const newPassword = `${adjectives[Math.floor(Math.random() * adjectives.length)]}${nums}`;
+        user.password = newPassword;
+        saveDataStore(db);
+        logSystem(`Senha de "${user.name}" redefinida pelo administrador.`);
+        if (panel && content) {
+            content.innerHTML = `
+                <div class="space-y-1">
+                    <div class="text-zinc-400 text-[10px]">Usuário: <span class="text-white">${user.username || user.email}</span></div>
+                    <div class="text-zinc-400 text-[10px]">Nova Senha: <span class="text-emerald-400 font-bold text-sm">${newPassword}</span></div>
+                    <div class="text-zinc-500 text-[9px] mt-2 font-mono">Comunique as novas credenciais ao usuário com segurança.</div>
+                </div>
+            `;
+            panel.classList.remove('hidden');
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
     }
     renderUsersManagement();
 }
@@ -2407,46 +2452,137 @@ function hideLoginScreen() {
     if (debugBar) debugBar.classList.remove('hidden');
 }
 
-function attemptLogin(event) {
+function showPasswordResetScreen() {
+    const container = document.getElementById('reset-password-container');
+    if (container) container.classList.remove('hidden');
+    const err = document.getElementById('reset-password-error');
+    if (err) err.classList.add('hidden');
+}
+
+function hidePasswordResetScreen() {
+    const container = document.getElementById('reset-password-container');
+    if (container) container.classList.add('hidden');
+}
+
+async function requestPasswordReset() {
+    const input = document.getElementById('login-username').value.trim();
+    if (!input) {
+        alert('Digite seu usuário ou e-mail antes de clicar em "Esqueci minha senha".');
+        return;
+    }
+    if (!supabaseClient || supabaseMode !== 'CLOUD') {
+        alert('Recuperação de senha requer conexão com o Supabase. Contate o administrador.');
+        return;
+    }
+    let email = input;
+    if (!input.includes('@')) {
+        const found = db.users.find(u => u.username && u.username.toLowerCase() === input.toLowerCase());
+        if (!found || !found.email) {
+            alert('Usuário não encontrado. Verifique o nome digitado ou use seu e-mail.');
+            return;
+        }
+        email = found.email;
+    }
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) {
+        alert('Erro ao enviar e-mail de recuperação: ' + error.message);
+    } else {
+        alert(`E-mail de recuperação enviado para ${email}. Verifique sua caixa de entrada.`);
+    }
+}
+
+async function updateOwnPassword(event) {
+    event.preventDefault();
+    const newPass = document.getElementById('reset-password-input').value;
+    const confirm = document.getElementById('reset-password-confirm').value;
+    const errorEl = document.getElementById('reset-password-error');
+
+    if (newPass !== confirm) {
+        errorEl.textContent = 'As senhas não coincidem.';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+    if (newPass.length < 6) {
+        errorEl.textContent = 'A senha deve ter no mínimo 6 caracteres.';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+
+    errorEl.classList.add('hidden');
+    const { error } = await supabaseClient.auth.updateUser({ password: newPass });
+    if (error) {
+        errorEl.textContent = 'Erro ao salvar senha: ' + error.message;
+        errorEl.classList.remove('hidden');
+    } else {
+        hidePasswordResetScreen();
+        alert('Senha atualizada com sucesso! Faça login com sua nova senha.');
+        showLoginScreen();
+    }
+}
+
+async function attemptLogin(event) {
     if (event) event.preventDefault();
-    
-    const usernameInput = document.getElementById('login-username').value.trim().toLowerCase();
-    const passwordInput = document.getElementById('login-password').value.trim();
+
+    const input = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
     const errorMsg = document.getElementById('login-error-msg');
     const loginCard = document.querySelector('.login-card');
 
-    // Mapeamento especial para sem acentos e normalização simples
-    const normalizedUsernameInput = usernameInput.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-
-    const user = db.users.find(u => {
-        if (!u.username) return false;
-        const normalizedDbUsername = u.username.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-        return normalizedDbUsername === normalizedUsernameInput && u.password === passwordInput;
-    });
-
-    if (user) {
-        sessionStorage.setItem('strivo_logged_user_id', user.id);
-        errorMsg.classList.add('hidden');
-        initApp(); // Reinicializa com a nova sessão do usuário
-    } else {
+    const showError = () => {
         errorMsg.classList.remove('hidden');
-        
-        // Efeito Shake no card de login
         if (loginCard) {
             loginCard.classList.add('shake-card');
-            setTimeout(() => {
-                loginCard.classList.remove('shake-card');
-            }, 500);
+            setTimeout(() => loginCard.classList.remove('shake-card'), 500);
+        }
+    };
+
+    if (supabaseMode === 'CLOUD' && supabaseClient) {
+        // Resolve email: aceita username ou email direto
+        let email = input;
+        if (!input.includes('@')) {
+            const normalized = input.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+            const found = db.users.find(u => u.username &&
+                u.username.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase() === normalized);
+            if (!found || !found.email) { showError(); return; }
+            email = found.email;
+        }
+
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error || !data.user) { showError(); return; }
+
+        const dbUser = db.users.find(u => u.email && u.email.toLowerCase() === data.user.email.toLowerCase());
+        if (!dbUser) { showError(); return; }
+
+        sessionStorage.setItem('strivo_logged_user_id', dbUser.id);
+        errorMsg.classList.add('hidden');
+        initApp();
+    } else {
+        // Fallback modo local (sem Supabase)
+        const normalized = input.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+        const user = db.users.find(u => {
+            if (!u.username) return false;
+            const normalizedDb = u.username.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+            return normalizedDb === normalized && u.password === password;
+        });
+        if (user) {
+            sessionStorage.setItem('strivo_logged_user_id', user.id);
+            errorMsg.classList.add('hidden');
+            initApp();
+        } else {
+            showError();
         }
     }
 }
 
-function logoutUser(event) {
+async function logoutUser(event) {
     if (event) event.preventDefault();
-    if (confirm("Deseja realmente sair da conta comercial?")) {
-        sessionStorage.removeItem('strivo_logged_user_id');
-        showLoginScreen();
+    if (!confirm("Deseja realmente sair da conta comercial?")) return;
+    if (supabaseMode === 'CLOUD' && supabaseClient) {
+        await supabaseClient.auth.signOut();
     }
+    sessionStorage.removeItem('strivo_logged_user_id');
+    showLoginScreen();
 }
 
 function toggleCredentialsPanel() {
@@ -2465,6 +2601,10 @@ function toggleCredentialsPanel() {
 window.attemptLogin = attemptLogin;
 window.logoutUser = logoutUser;
 window.toggleCredentialsPanel = toggleCredentialsPanel;
+window.requestPasswordReset = requestPasswordReset;
+window.updateOwnPassword = updateOwnPassword;
+window.showPasswordResetScreen = showPasswordResetScreen;
+window.hidePasswordResetScreen = hidePasswordResetScreen;
 
 // ==================== SUPABASE CLOUD SYNC & CONFIG ====================
 async function loadDataStoreFromCloud() {

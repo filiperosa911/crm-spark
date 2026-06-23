@@ -12,12 +12,13 @@ create table if not exists public.users (
   name        text          not null,
   role        text          not null,       -- 'diretoria' | 'lideranca' | 'agente'
   cargo       text,                         -- 'Gestor' | 'Assessor'
-  email       text,
+  email       text          unique,         -- must match Supabase Auth user email
   unidade     text,
   "parentId"  integer       references public.users(id),
   username    text          unique,
-  password    text,
-  status      text          default 'active'
+  password    text,                         -- unused in CLOUD mode (auth via Supabase)
+  status      text          default 'active',
+  auth_id     uuid          references auth.users(id) on delete set null
 );
 
 
