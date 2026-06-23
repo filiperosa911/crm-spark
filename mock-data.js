@@ -1,11 +1,11 @@
 // SPARK PLATFORM // INITIAL MOCK DATA DEFINITIONS
 const INITIAL_MOCK_DATA = {
     users: [
-        { id: 1, name: "Filipe Rosa", role: "diretoria", cargo: "Gestor", email: "filipe.rosa@sparkinvest.com.br", unidade: "Porto Alegre", parentId: null, username: "filipe.rosa", password: "FilipeSpark", status: "active" },
-        { id: 2, name: "Wladimir Leis", role: "lideranca", cargo: "Gestor", email: "wladimir.leis@sparkinvest.com.br", unidade: "São Paulo", parentId: null, username: "wladimir.leis", password: "WladimirSpark", status: "active" },
-        { id: 3, name: "Aramis Dahmer", role: "agente", cargo: "Assessor", email: "aramis.dahmer@sparkinvest.com.br", unidade: "Porto Alegre", parentId: 1, username: "aramis.dahmer", password: "AramisSpark", status: "active" },
-        { id: 4, name: "Guilherme Azevedo", role: "agente", cargo: "Assessor", email: "guilherme.azevedo@sparkinvest.com.br", unidade: "Porto Alegre", parentId: 1, username: "guilherme.azevedo", password: "GuilhermeSpark", status: "active" },
-        { id: 5, name: "Rodrigo Gluszczuk", role: "agente", cargo: "Assessor", email: "rodrigo.gluszczuk@sparkinvest.com.br", unidade: "Porto Alegre", parentId: 1, username: "rodrigo.gluszczuk", password: "RodrigoSpark", status: "active" }
+        { id: 1, name: "Filipe Rosa", role: "diretoria", cargo: "Gestor", email: "filipe.rosa@sparkinvest.com.br", unidade: "Porto Alegre", parentId: null, username: "filipe.rosa", password: "", status: "active" },
+        { id: 2, name: "Wladimir Leis", role: "lideranca", cargo: "Gestor", email: "wladimir.leis@sparkinvest.com.br", unidade: "São Paulo", parentId: null, username: "wladimir.leis", password: "", status: "active" },
+        { id: 3, name: "Aramis Dahmer", role: "agente", cargo: "Assessor", email: "aramis.dahmer@sparkinvest.com.br", unidade: "Porto Alegre", parentId: 1, username: "aramis.dahmer", password: "", status: "active" },
+        { id: 4, name: "Guilherme Azevedo", role: "agente", cargo: "Assessor", email: "guilherme.azevedo@sparkinvest.com.br", unidade: "Porto Alegre", parentId: 1, username: "guilherme.azevedo", password: "", status: "active" },
+        { id: 5, name: "Rodrigo Gluszczuk", role: "agente", cargo: "Assessor", email: "rodrigo.gluszczuk@sparkinvest.com.br", unidade: "Porto Alegre", parentId: 1, username: "rodrigo.gluszczuk", password: "", status: "active" }
     ],
     products: [
         { id: 1, name: "Spark Yield 40 FIF", taxAdm: 1.2, feeCap: 0.0, splitStrivo: 60, splitLider: 15, splitAgente: 25, cnpj: "46.847.516/0001-77", administrator: "VORTX", investorType: "Qualificado", performanceFee: "20% sobre o que exceder o benchmark", benchmark: "CDI+", status: "active" },
