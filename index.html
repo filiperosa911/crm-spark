@@ -4,10 +4,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STRIVO // Plataforma de Distribuição Comercial</title>
+    <title>SPARK // Plataforma de Distribuição Comercial</title>
 
     <!-- Tailwind CSS for utility grids and layout -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        cyan: {
+                            300: '#00acc1',
+                            400: '#0097a7',
+                            500: '#008394',
+                            600: '#006772',
+                            700: '#005b66',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
     <!-- Custom Design Tokens and classes -->
     <link rel="stylesheet" href="styles.css">
 
@@ -53,12 +70,12 @@
         <aside
             class="w-[260px] border-r border-zinc-900 bg-[#060a1a]/40 p-6 flex flex-col justify-between shrink-0 hidden md:flex">
             <div class="space-y-8">
-                <!-- Branding Strivo Logo -->
+                <!-- Branding Spark Logo -->
                 <div class="strivo-logo-container pb-5 border-b border-zinc-900/60">
-                    <img src="assets/logo1-strivo.png" alt="Strivo Gestão de Recursos"
-                        class="strivo-logo-dark w-[185px] h-auto block">
-                    <img src="assets/logo2-strivo.png" alt="Strivo Gestão de Recursos"
-                        class="strivo-logo-light w-[185px] h-auto hidden">
+                    <img src="assets/spark-logo.webp" alt="Spark Invest"
+                        class="strivo-logo-dark w-[165px] h-auto block">
+                    <img src="assets/spark-logo.webp" alt="Spark Invest"
+                        class="strivo-logo-light w-[165px] h-auto hidden">
                 </div>
 
                 <!-- Session User Block -->
@@ -89,6 +106,9 @@
                     <a href="#" data-target="settings" id="sidebar-link-settings" class="sidebar-link hidden">
                         <span>⚙️</span> Ajustes Funil
                     </a>
+                    <a href="#" data-target="users" id="sidebar-link-users" class="sidebar-link hidden">
+                        <span>👥</span> Gestão de Usuários
+                    </a>
                     <a href="#" onclick="logoutUser(event)"
                         class="sidebar-link mt-4 text-rose-500/80 hover:text-rose-400 hover:bg-rose-950/10 !border-l-transparent">
                         <span>🚪</span> Sair da Conta
@@ -99,7 +119,7 @@
             <!-- Footer Meta -->
             <div class="font-mono text-[8px] text-zinc-600 space-y-1">
                 <p>VERTIC TECH SYSTEM © 2026</p>
-                <p>OS_STRIVO_v1.0_PROTOTYPE</p>
+                <p>OS_SPARK_v1.0_PROTOTYPE</p>
             </div>
         </aside>
 
@@ -200,7 +220,7 @@
                                         <th class="py-2.5 px-4">Assessor</th>
                                         <th class="py-2.5 px-4 font-mono text-[10px]">Papel</th>
                                         <th class="py-2.5 px-4 text-right">Leads Ativos</th>
-                                        <th class="py-2.5 px-4 text-right">Valor em Pipeline</th>
+                                        <th class="py-2.5 px-4 text-right">Potencial em Pipeline</th>
                                         <th class="py-2.5 px-4 text-right">Distribuição %</th>
                                     </tr>
                                 </thead>
@@ -268,7 +288,7 @@
                                     <th class="py-2.5 px-4 font-mono text-[10px]">E-mail</th>
                                     <th class="py-2.5 px-4 font-mono text-[10px]">Etapa do Funil</th>
                                     <th class="py-2.5 px-4 font-mono text-[10px]">Assessor Designado</th>
-                                    <th class="py-2.5 px-4 text-right">Valor Estimado</th>
+                                    <th class="py-2.5 px-4 text-right">Potencial</th>
                                     <th class="py-2.5 px-4 text-right">Ação</th>
                                 </tr>
                             </thead>
@@ -418,8 +438,9 @@
                                         <th class="py-2 px-4">ID</th>
                                         <th class="py-2 px-4">Nome</th>
                                         <th class="py-2 px-4">E-mail</th>
-                                        <th class="py-2 px-4">Cargo / Função</th>
-                                        <th class="py-2 px-4">Líder Associado</th>
+                                        <th class="py-2 px-4">Cargo</th>
+                                        <th class="py-2 px-4">Unidade</th>
+                                        <th class="py-2 px-4">Gestor Associado</th>
                                         <th class="py-2 px-4 text-right">Ações</th>
                                     </tr>
                                 </thead>
@@ -663,7 +684,7 @@
                     <!-- Formulário de Chaves -->
                     <div class="lg:col-span-7 space-y-4">
                         <p class="text-zinc-400 text-xs font-sans">
-                            Conecte a plataforma Strivo a uma instância na nuvem do Supabase. Com o modo nuvem ativado,
+                            Conecte a plataforma Spark a uma instância na nuvem do Supabase. Com o modo nuvem ativado,
                             os dados comerciais serão sincronizados de forma permanente e as regras de comissionamento
                             serão calculadas e validadas no lado do servidor.
                         </p>
@@ -713,9 +734,63 @@
                     </div>
                 </div>
             </div>
-    </div>
+            </div>
 
-    </main>
+            <!-- ================= view-users ================= -->
+            <div id="view-users" class="app-view hidden space-y-8">
+                <div class="flex justify-between items-center border-b border-zinc-900 pb-4">
+                    <div>
+                        <h2 class="font-bold text-white text-lg font-sans">Gestão de Usuários</h2>
+                        <p class="text-zinc-500 text-xs mt-1 font-mono">Cadastro, permissões e credenciais da equipe</p>
+                    </div>
+                    <button onclick="openUserModalAdmin()"
+                        class="bg-cyan-500 hover:bg-cyan-400 text-black font-bold px-4 py-2 rounded font-mono text-xs uppercase transition-all">
+                        + Novo Usuário
+                    </button>
+                </div>
+
+                <!-- Filtros rápidos -->
+                <div class="flex gap-3 flex-wrap">
+                    <button onclick="filterUsersView('all')" id="filter-users-all" class="user-filter-btn active font-mono text-[10px] px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 bg-zinc-800/60 uppercase tracking-wider transition-colors">Todos</button>
+                    <button onclick="filterUsersView('Gestor')" id="filter-users-gestor" class="user-filter-btn font-mono text-[10px] px-3 py-1.5 rounded border border-zinc-700 text-zinc-500 hover:text-zinc-300 uppercase tracking-wider transition-colors">Gestores</button>
+                    <button onclick="filterUsersView('Assessor')" id="filter-users-assessor" class="user-filter-btn font-mono text-[10px] px-3 py-1.5 rounded border border-zinc-700 text-zinc-500 hover:text-zinc-300 uppercase tracking-wider transition-colors">Assessores</button>
+                </div>
+
+                <!-- Tabela de usuários -->
+                <div class="glass-card overflow-hidden">
+                    <table class="w-full text-left border-collapse strivo-table">
+                        <thead>
+                            <tr>
+                                <th class="py-3 px-4">Nome</th>
+                                <th class="py-3 px-4">E-mail</th>
+                                <th class="py-3 px-4">Cargo</th>
+                                <th class="py-3 px-4">Unidade</th>
+                                <th class="py-3 px-4">Gestor</th>
+                                <th class="py-3 px-4 text-center">Admin</th>
+                                <th class="py-3 px-4 text-center">Status</th>
+                                <th class="py-3 px-4 text-right">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-mgmt-table-body">
+                            <!-- Preenchido dinamicamente -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Painel de credenciais geradas -->
+                <div id="users-mgmt-credential-panel" class="hidden glass-card p-5 border border-emerald-500/20 bg-emerald-500/5">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="font-mono text-[10px] text-emerald-400 uppercase tracking-wider font-bold mb-2">// Nova senha gerada</p>
+                            <div id="users-mgmt-credential-content" class="font-mono text-sm text-white"></div>
+                        </div>
+                        <button onclick="document.getElementById('users-mgmt-credential-panel').classList.add('hidden')"
+                            class="text-zinc-500 hover:text-white font-mono text-xs">[ Fechar ]</button>
+                    </div>
+                </div>
+            </div>
+
+        </main>
     </div>
 
     <!-- ================= MODAIS OVERLAYS ================= -->
@@ -742,8 +817,7 @@
                                 class="w-full bg-slate-900 border border-zinc-800 rounded p-2 text-zinc-100 font-sans focus:outline-none focus:border-cyan-500">
                         </div>
                         <div class="space-y-1">
-                            <label for="lead-modal-value" class="text-zinc-400 font-semibold">Valor Estimado
-                                (R$):</label>
+                            <label for="lead-modal-value" class="text-zinc-400 font-semibold">Potencial de Captação (R$):</label>
                             <input type="number" id="lead-modal-value" required
                                 class="w-full bg-slate-900 border border-zinc-800 rounded p-2 text-zinc-100 font-mono focus:outline-none focus:border-cyan-500">
                         </div>
@@ -757,7 +831,7 @@
                         </div>
                         <div class="space-y-1">
                             <label for="lead-modal-email" class="text-zinc-400 font-semibold">E-mail:</label>
-                            <input type="email" id="lead-modal-email" placeholder="exemplo@strivo.com"
+                            <input type="email" id="lead-modal-email" placeholder="exemplo@sparkinvest.com.br"
                                 class="w-full bg-slate-900 border border-zinc-800 rounded p-2 text-zinc-100 font-sans focus:outline-none focus:border-cyan-500">
                         </div>
                     </div>
@@ -769,9 +843,8 @@
                             <input type="text" id="lead-modal-source" placeholder="LinkedIn, Indicação, etc."
                                 class="w-full bg-slate-900 border border-zinc-800 rounded p-2 text-zinc-100 font-sans focus:outline-none focus:border-cyan-500">
                         </div>
-                        <div class="space-y-1">
-                            <label for="lead-modal-product" class="text-zinc-400 font-semibold">Produto de
-                                Interesse:</label>
+                        <div class="space-y-1 hidden">
+                            <label for="lead-modal-product" class="text-zinc-400 font-semibold">Produto:</label>
                             <select id="lead-modal-product"
                                 class="w-full bg-slate-900 border border-zinc-800 rounded p-2 text-zinc-100 focus:outline-none focus:border-cyan-500">
                                 <!-- Options filled by JS -->
@@ -938,18 +1011,32 @@
                     <input type="email" id="user-modal-email" required
                         class="w-full bg-slate-900 border border-zinc-800 rounded p-2 text-zinc-100 font-sans focus:outline-none focus:border-cyan-500">
                 </div>
-                <div class="space-y-1">
-                    <label for="user-modal-role" class="text-zinc-400 font-semibold">Nível / Cargo Comercial:</label>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-1">
+                        <label for="user-modal-cargo" class="text-zinc-400 font-semibold">Cargo:</label>
+                        <select id="user-modal-cargo"
+                            class="w-full bg-slate-900 border border-zinc-800 rounded p-2 text-zinc-100 focus:outline-none focus:border-cyan-500">
+                            <option value="Gestor">Gestor</option>
+                            <option value="Assessor">Assessor</option>
+                        </select>
+                    </div>
+                    <div class="space-y-1">
+                        <label for="user-modal-unidade" class="text-zinc-400 font-semibold">Unidade:</label>
+                        <input type="text" id="user-modal-unidade" placeholder="Ex: Porto Alegre"
+                            class="w-full bg-slate-900 border border-zinc-800 rounded p-2 text-zinc-100 font-sans focus:outline-none focus:border-cyan-500">
+                    </div>
+                </div>
+                <div class="space-y-1 hidden">
+                    <label for="user-modal-role" class="text-zinc-400 font-semibold">Nível (interno):</label>
                     <select id="user-modal-role"
                         class="w-full bg-slate-900 border border-zinc-800 rounded p-2 text-zinc-100 focus:outline-none focus:border-cyan-500">
-                        <option value="diretoria">Diretoria</option>
-                        <option value="lideranca">Liderança Comercial (Nível 2)</option>
-                        <option value="agente">Agente Comercial (Nível 3)</option>
+                        <option value="diretoria">Gestor Admin</option>
+                        <option value="lideranca">Gestor</option>
+                        <option value="agente">Assessor</option>
                     </select>
                 </div>
                 <div class="space-y-1">
-                    <label for="user-modal-parent" class="text-zinc-400 font-semibold">Líder Comercial
-                        Responsável:</label>
+                    <label for="user-modal-parent" class="text-zinc-400 font-semibold">Gestor Responsável:</label>
                     <select id="user-modal-parent"
                         class="w-full bg-slate-900 border border-zinc-800 rounded p-2 text-zinc-100 focus:outline-none focus:border-cyan-500">
                         <!-- Options filled by JS -->
@@ -1001,7 +1088,7 @@
 
                     <div class="grid grid-cols-3 gap-2">
                         <div class="space-y-1">
-                            <label for="product-modal-splitstrivo" class="text-zinc-500 text-[10px]">Strivo
+                            <label for="product-modal-splitstrivo" class="text-zinc-500 text-[10px]">Spark
                                 (Casa)</label>
                             <input type="number" id="product-modal-splitstrivo" required
                                 class="w-full bg-slate-900 border border-zinc-800 rounded p-2 text-zinc-100 focus:outline-none focus:border-cyan-500">
@@ -1044,7 +1131,7 @@
             class="login-card glass-card relative w-[90%] max-w-[420px] p-8 md:p-10 flex flex-col items-center space-y-6 z-10 pulse-glow">
             <!-- Brand Logo -->
             <div class="w-[185px] pb-4 flex justify-center border-b border-zinc-800/40">
-                <img src="assets/logo1-strivo.png" alt="Strivo Logo" class="w-full h-auto">
+                <img src="assets/spark-logo.webp" alt="Spark Logo" class="w-full h-auto" style="filter: brightness(0) invert(1); opacity: 0.95;">
             </div>
 
             <!-- Login Header -->
@@ -1087,21 +1174,17 @@
                     <span id="credentials-arrow">▼</span>
                 </button>
                 <div id="credentials-panel"
-                    class="hidden mt-3 max-h-[140px] overflow-y-auto pr-1 space-y-2 text-zinc-500 font-mono text-[9px]">
+                    class="hidden mt-3 max-h-[160px] overflow-y-auto pr-1 space-y-2 text-zinc-500 font-mono text-[9px]">
                     <div class="border-b border-zinc-900 pb-1">
-                        <span class="text-zinc-400">Diretoria:</span><br>
-                        filipe.rosa / FilipeStrivo<br>
-                        diogo.wunsch / DiogoStrivo
-                    </div>
-                    <div class="border-b border-zinc-900 pb-1">
-                        <span class="text-zinc-400">Liderança:</span><br>
-                        celso.pimenta / CelsoStrivo
+                        <span class="text-zinc-400">Gestores:</span><br>
+                        filipe.rosa / FilipeSpark<br>
+                        wladimir.leis / WladimirSpark
                     </div>
                     <div>
-                        <span class="text-zinc-400">Parceiros / Agentes:</span><br>
-                        eqr / EQRStrivo<br>
-                        vex.capital / VexStrivo<br>
-                        s2.invest / S2Strivo
+                        <span class="text-zinc-400">Assessores:</span><br>
+                        aramis.dahmer / AramisSpark<br>
+                        guilherme.azevedo / GuilhermeSpark<br>
+                        rodrigo.gluszczuk / RodrigoSpark
                     </div>
                 </div>
             </div>

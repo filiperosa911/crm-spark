@@ -1,4 +1,4 @@
-// STRIVO PLATFORM // CORE BUSINESS LOGIC & INTERACTION
+// SPARK PLATFORM // CORE BUSINESS LOGIC & INTERACTION
 
 // Global State
 let db = loadDataStore();
@@ -157,29 +157,25 @@ function renderSidebar() {
     const user = db.users.find(u => u.id === currentUserId);
     const container = document.getElementById('sidebar-user-info');
     if (container && user) {
-        let roleBadge = `<span class="px-2 py-0.5 rounded text-[9px] font-mono `;
-        if (user.role === 'diretoria') roleBadge += 'badge-diretoria">Diretoria';
-        else if (user.role === 'lideranca') roleBadge += 'badge-lideranca">Liderança';
-        else roleBadge += 'badge-agente">Agente Comercial';
-        roleBadge += '</span>';
+        const cargo = user.cargo || (user.role === 'agente' ? 'Assessor' : 'Gestor');
+        const cargoBadgeClass = cargo === 'Assessor' ? 'badge-agente' : 'badge-lideranca';
+        const roleBadge = `<span class="px-2 py-0.5 rounded text-[9px] font-mono ${cargoBadgeClass}">${cargo}</span>`;
 
         container.innerHTML = `
             <div class="font-sans font-bold text-white text-sm">${user.name}</div>
             <div class="font-mono text-[9px] text-zinc-500 mt-1 uppercase flex items-center gap-2">
                 ${user.email}
             </div>
+            ${user.unidade ? `<div class="font-mono text-[9px] text-zinc-600 mt-0.5 uppercase">${user.unidade}</div>` : ''}
             <div class="mt-2">${roleBadge}</div>
         `;
 
-        // Toggle Ajustes Funil (Settings) visibility based on role
+        // Toggle admin-only links based on role
         const settingsLink = document.getElementById('sidebar-link-settings');
-        if (settingsLink) {
-            if (user.role === 'diretoria') {
-                settingsLink.classList.remove('hidden');
-            } else {
-                settingsLink.classList.add('hidden');
-            }
-        }
+        const usersLink = document.getElementById('sidebar-link-users');
+        const isAdmin = user.role === 'diretoria';
+        if (settingsLink) settingsLink.classList.toggle('hidden', !isAdmin);
+        if (usersLink) usersLink.classList.toggle('hidden', !isAdmin);
     }
 }
 
@@ -224,8 +220,8 @@ function setupEventListeners() {
 }
 
 function switchView(viewId) {
-    if (viewId === 'settings' && currentRole !== 'diretoria') {
-        alert("Acesso restrito à Diretoria Comercial.");
+    if ((viewId === 'settings' || viewId === 'users') && currentRole !== 'diretoria') {
+        alert("Acesso restrito ao Administrador.");
         switchView('dashboard');
         return;
     }
@@ -255,6 +251,7 @@ function switchView(viewId) {
     else if (viewId === 'approvals') renderApprovals();
     else if (viewId === 'partnerships') renderPartnerships();
     else if (viewId === 'settings') renderFunnelStages();
+    else if (viewId === 'users') renderUsersManagement();
 }
 
 // Debug Switcher Lógica
@@ -445,7 +442,7 @@ function renderDashboard() {
         } else {
             advisorsBody.innerHTML = pipelineData.map(data => {
                 const percentage = totalActivePipelineValue > 0 ? (data.pipelineValue / totalActivePipelineValue * 100).toFixed(1) : '0.0';
-                const roleLabel = data.role === 'lideranca' ? 'Líder' : 'Agente';
+                const roleLabel = data.role === 'lideranca' ? 'Gestor' : 'Assessor';
                 
                 return `
                     <tr class="hover:bg-slate-900/10 transition-colors">
@@ -703,7 +700,6 @@ function renderCRM() {
                 cardsContainer.innerHTML = `<div class="py-12 text-center text-zinc-600 font-mono text-[10px]">Arraste leads aqui</div>`;
             } else {
                 stageLeads.forEach(lead => {
-                    const product = db.products.find(p => p.id === lead.productId);
                     const agent = db.users.find(u => u.id === lead.agentId);
 
                     const card = document.createElement('div');
@@ -750,8 +746,7 @@ function renderCRM() {
                             ${splitText}
                         </div>
                         <div class="space-y-1 font-mono text-[9px] text-zinc-400">
-                            <div>PRODUTO: <span class="text-zinc-200">${product ? product.name : 'Indefinido'}</span></div>
-                            <div>VALOR: <span class="text-emerald-400 font-bold">${formatCurrency(lead.value)}</span></div>
+                            <div>POTENCIAL: <span class="text-emerald-400 font-bold">${formatCurrency(lead.value)}</span></div>
                             <div>ASSESSOR: <span class="text-zinc-200">${agent ? agent.name : 'N/A'}</span></div>
                         </div>
                         ${metaBadges}
@@ -779,7 +774,6 @@ function renderCRM() {
         }
 
         tableBody.innerHTML = visibleLeads.map(lead => {
-            const product = db.products.find(p => p.id === lead.productId);
             const agent = db.users.find(u => u.id === lead.agentId);
 
             // Get status tag color/label from dynamic stages
@@ -884,7 +878,10 @@ function openLeadModal(leadId) {
     
     // Filter agents select by hierarchy
     const visibleUsers = db.users.filter(u => u.role === 'agente' || u.role === 'lideranca');
-    agentSelect.innerHTML = visibleUsers.map(u => `<option value="${u.id}">${u.name} (${u.role.toUpperCase()})</option>`).join('');
+    agentSelect.innerHTML = visibleUsers.map(u => {
+        const cargo = u.cargo || (u.role === 'agente' ? 'Assessor' : 'Gestor');
+        return `<option value="${u.id}">${u.name} (${cargo})</option>`;
+    }).join('');
 
     // Fill dynamic stages select
     if (stageSelect && db.stages) {
@@ -1266,7 +1263,7 @@ function downloadLeadAttachment(leadId, index) {
     if (!lead || !lead.attachments || !lead.attachments[index]) return;
     const file = lead.attachments[index];
     
-    const content = `Simulação de arquivo anexo da plataforma Strivo.\n\nNome do arquivo: ${file.name}\nTamanho: ${file.size}\nData de upload: ${file.date}\nLead: ${lead.name}\n\nEste é um arquivo simulado gerado pelo CRM Strivo.`;
+    const content = `Simulação de arquivo anexo da plataforma Spark.\n\nNome do arquivo: ${file.name}\nTamanho: ${file.size}\nData de upload: ${file.date}\nLead: ${lead.name}\n\nEste é um arquivo simulado gerado pelo CRM Spark.`;
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1300,9 +1297,7 @@ function renderFinancial() {
     }
 
     list.forEach(fat => {
-        const client = db.clients.find(c => c.code === fat.clientCode);
         const product = db.products.find(p => p.id === fat.productId);
-        const agent = db.users.find(u => u.id === client.agentId);
 
         let payoutStrivo = fat.value * (product.splitStrivo / 100);
         let payoutLider = fat.value * (product.splitLider / 100);
@@ -1565,10 +1560,9 @@ function renderPartnerships() {
         userTbody.innerHTML = '';
         db.users.forEach(u => {
             const parent = u.parentId ? db.users.find(pu => pu.id === u.parentId) : null;
-            let roleBadge = '';
-            if (u.role === 'diretoria') roleBadge = `<span class="px-1.5 py-0.5 rounded text-[8px] font-mono badge-diretoria">DIRETORIA</span>`;
-            else if (u.role === 'lideranca') roleBadge = `<span class="px-1.5 py-0.5 rounded text-[8px] font-mono badge-lideranca">LIDERANÇA</span>`;
-            else roleBadge = `<span class="px-1.5 py-0.5 rounded text-[8px] font-mono badge-agente">AGENTE</span>`;
+            const cargo = u.cargo || (u.role === 'agente' ? 'Assessor' : 'Gestor');
+            const cargoBadgeClass = cargo === 'Assessor' ? 'badge-agente' : 'badge-lideranca';
+            const cargoBadge = `<span class="px-1.5 py-0.5 rounded text-[8px] font-mono ${cargoBadgeClass}">${cargo.toUpperCase()}</span>`;
 
             let actions = '';
             if (isDir) {
@@ -1580,8 +1574,9 @@ function renderPartnerships() {
                     <td class="py-2.5 px-4 font-mono text-xs text-zinc-400">${u.id}</td>
                     <td class="py-2.5 px-4 text-zinc-200 font-semibold">${u.name}</td>
                     <td class="py-2.5 px-4 font-mono text-[10px] text-zinc-500">${u.email}</td>
-                    <td class="py-2.5 px-4">${roleBadge}</td>
-                    <td class="py-2.5 px-4 font-mono text-xs text-zinc-400">${parent ? parent.name : 'N/A'}</td>
+                    <td class="py-2.5 px-4">${cargoBadge}</td>
+                    <td class="py-2.5 px-4 font-mono text-xs text-zinc-400">${u.unidade || '—'}</td>
+                    <td class="py-2.5 px-4 font-mono text-xs text-zinc-400">${parent ? parent.name : '—'}</td>
                     <td class="py-2.5 px-4 text-right">${actions}</td>
                 </tr>
             `;
@@ -1622,16 +1617,18 @@ function openUserModal() {
     const modal = document.getElementById('user-modal');
     if (!modal) return;
 
-    // populate leaders select
-    const leaders = db.users.filter(u => u.role === 'lideranca');
+    // populate gestores select
+    const gestores = db.users.filter(u => u.role === 'diretoria' || u.role === 'lideranca');
     const leaderSelect = document.getElementById('user-modal-parent');
-    leaderSelect.innerHTML = `<option value="">Nenhum (Direto)</option>` + 
-        leaders.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+    leaderSelect.innerHTML = `<option value="">Nenhum</option>` +
+        gestores.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
 
     document.getElementById('user-modal-title').innerText = "Novo Usuário";
     document.getElementById('user-modal-id').value = '';
     document.getElementById('user-modal-name').value = '';
     document.getElementById('user-modal-email').value = '';
+    document.getElementById('user-modal-cargo').value = 'Assessor';
+    document.getElementById('user-modal-unidade').value = '';
     document.getElementById('user-modal-role').value = 'agente';
     leaderSelect.value = '';
 
@@ -1652,6 +1649,8 @@ function editUserPrompt(userId) {
     document.getElementById('user-modal-id').value = user.id;
     document.getElementById('user-modal-name').value = user.name;
     document.getElementById('user-modal-email').value = user.email;
+    document.getElementById('user-modal-cargo').value = user.cargo || (user.role === 'agente' ? 'Assessor' : 'Gestor');
+    document.getElementById('user-modal-unidade').value = user.unidade || '';
     document.getElementById('user-modal-role').value = user.role;
     document.getElementById('user-modal-parent').value = user.parentId || '';
 }
@@ -1661,7 +1660,9 @@ function saveUser(event) {
     const idVal = document.getElementById('user-modal-id').value;
     const name = document.getElementById('user-modal-name').value;
     const email = document.getElementById('user-modal-email').value;
-    const role = document.getElementById('user-modal-role').value;
+    const cargo = document.getElementById('user-modal-cargo').value;
+    const unidade = document.getElementById('user-modal-unidade').value;
+    const role = cargo === 'Assessor' ? 'agente' : 'lideranca';
     const parentIdVal = document.getElementById('user-modal-parent').value;
     const parentId = parentIdVal ? parseInt(parentIdVal) : null;
 
@@ -1671,29 +1672,177 @@ function saveUser(event) {
         if (user) {
             user.name = name;
             user.email = email;
-            user.role = role;
+            user.cargo = cargo;
+            user.unidade = unidade;
+            if (user.role !== 'diretoria') user.role = role;
             user.parentId = parentId;
         }
         logSystem(`Usuário atualizado: ${name}`);
     } else {
         // Create
-        const newId = db.users.length + 1;
+        const newId = Math.max(...db.users.map(u => u.id)) + 1;
         db.users.push({
             id: newId,
             name: name,
             email: email,
+            cargo: cargo,
+            unidade: unidade,
             role: role,
             parentId: parentId,
             status: "active"
         });
-        logSystem(`Novo usuário cadastrado: ${name} (${role.toUpperCase()})`);
+        logSystem(`Novo usuário cadastrado: ${name} (${cargo})`);
     }
 
     saveDataStore(db);
     closeUserModal();
     populateSelects();
     renderPartnerships();
+    renderUsersManagement();
     renderSidebar();
+}
+
+// ----------------- MÓDULO: GESTÃO DE USUÁRIOS (ADMIN) -----------------
+
+let _usersMgmtFilter = 'all';
+
+function filterUsersView(filter) {
+    _usersMgmtFilter = filter;
+    document.querySelectorAll('.user-filter-btn').forEach(btn => btn.classList.remove('active', 'bg-zinc-700', 'text-white'));
+    const active = document.getElementById(`filter-users-${filter}`);
+    if (active) { active.classList.add('active', 'bg-zinc-700', 'text-white'); }
+    renderUsersManagement();
+}
+
+function renderUsersManagement() {
+    const tbody = document.getElementById('users-mgmt-table-body');
+    if (!tbody) return;
+
+    const isCurrentAdmin = currentRole === 'diretoria';
+    let users = db.users;
+    if (_usersMgmtFilter !== 'all') {
+        users = users.filter(u => (u.cargo || (u.role === 'agente' ? 'Assessor' : 'Gestor')) === _usersMgmtFilter);
+    }
+
+    tbody.innerHTML = users.map(u => {
+        const parent = u.parentId ? db.users.find(p => p.id === u.parentId) : null;
+        const cargo = u.cargo || (u.role === 'agente' ? 'Assessor' : 'Gestor');
+        const isAdmin = u.role === 'diretoria';
+        const cargoBadgeClass = cargo === 'Assessor' ? 'badge-agente' : 'badge-lideranca';
+        const adminBadge = isAdmin
+            ? `<span class="px-1.5 py-0.5 rounded text-[8px] font-mono badge-diretoria">ADMIN</span>`
+            : `<span class="text-zinc-600 font-mono text-[9px]">—</span>`;
+        const statusBadge = u.status === 'active'
+            ? `<span class="px-1.5 py-0.5 rounded text-[8px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Ativo</span>`
+            : `<span class="px-1.5 py-0.5 rounded text-[8px] font-mono bg-zinc-800 text-zinc-500 border border-zinc-700">Inativo</span>`;
+
+        const isSelf = u.id === currentUserId;
+        const canToggleAdmin = isCurrentAdmin && !isSelf;
+        const canDelete = isCurrentAdmin && !isSelf;
+
+        const adminBtnLabel = isAdmin ? 'Remover Admin' : 'Tornar Admin';
+        const adminBtnClass = isAdmin ? 'text-rose-400 hover:text-rose-300' : 'text-amber-400 hover:text-amber-300';
+
+        let actions = '';
+        if (isCurrentAdmin) {
+            actions = `
+                <button onclick="openUserModalAdminEdit(${u.id})" class="text-[9px] font-mono text-cyan-400 hover:text-cyan-300 mr-2 uppercase">[ Editar ]</button>
+                <button onclick="resetUserPassword(${u.id})" class="text-[9px] font-mono text-zinc-400 hover:text-zinc-200 mr-2 uppercase">[ Reset Senha ]</button>
+                ${canToggleAdmin ? `<button onclick="toggleUserAdmin(${u.id})" class="text-[9px] font-mono ${adminBtnClass} mr-2 uppercase">[ ${adminBtnLabel} ]</button>` : ''}
+                ${canDelete ? `<button onclick="deleteUserAdmin(${u.id})" class="text-[9px] font-mono text-rose-500/70 hover:text-rose-400 uppercase">[ Excluir ]</button>` : ''}
+            `;
+        }
+
+        return `
+            <tr class="hover:bg-slate-900/10 ${isSelf ? 'bg-cyan-950/10' : ''}">
+                <td class="py-3 px-4 text-zinc-200 font-semibold">
+                    ${u.name}${isSelf ? ' <span class="text-[8px] font-mono text-cyan-500">(você)</span>' : ''}
+                </td>
+                <td class="py-3 px-4 font-mono text-[10px] text-zinc-400">${u.email}</td>
+                <td class="py-3 px-4"><span class="px-1.5 py-0.5 rounded text-[8px] font-mono ${cargoBadgeClass}">${cargo.toUpperCase()}</span></td>
+                <td class="py-3 px-4 font-mono text-xs text-zinc-400">${u.unidade || '—'}</td>
+                <td class="py-3 px-4 font-mono text-xs text-zinc-400">${parent ? parent.name : '—'}</td>
+                <td class="py-3 px-4 text-center">${adminBadge}</td>
+                <td class="py-3 px-4 text-center">${statusBadge}</td>
+                <td class="py-3 px-4 text-right text-nowrap">${actions}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function openUserModalAdmin() {
+    openUserModal();
+    document.getElementById('user-modal-title').innerText = "Novo Usuário";
+}
+
+function openUserModalAdminEdit(userId) {
+    editUserPrompt(userId);
+}
+
+function resetUserPassword(userId) {
+    const user = db.users.find(u => u.id === userId);
+    if (!user) return;
+
+    const adjectives = ['Spark', 'Invest', 'Capital', 'Assets', 'Wealth'];
+    const nums = Math.floor(100 + Math.random() * 900);
+    const newPassword = `${adjectives[Math.floor(Math.random() * adjectives.length)]}${nums}`;
+
+    user.password = newPassword;
+    saveDataStore(db);
+    logSystem(`Senha de "${user.name}" redefinida pelo administrador.`);
+
+    const panel = document.getElementById('users-mgmt-credential-panel');
+    const content = document.getElementById('users-mgmt-credential-content');
+    if (panel && content) {
+        content.innerHTML = `
+            <div class="space-y-1">
+                <div class="text-zinc-400 text-[10px]">Usuário: <span class="text-white">${user.username || user.email}</span></div>
+                <div class="text-zinc-400 text-[10px]">Nova Senha: <span class="text-emerald-400 font-bold text-sm">${newPassword}</span></div>
+                <div class="text-zinc-500 text-[9px] mt-2 font-mono">Comunique as novas credenciais ao usuário com segurança.</div>
+            </div>
+        `;
+        panel.classList.remove('hidden');
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    renderUsersManagement();
+}
+
+function toggleUserAdmin(userId) {
+    const user = db.users.find(u => u.id === userId);
+    if (!user) return;
+
+    if (user.role === 'diretoria') {
+        user.role = user.cargo === 'Assessor' ? 'agente' : 'lideranca';
+        logSystem(`Permissão de Admin removida de "${user.name}".`);
+    } else {
+        user.role = 'diretoria';
+        logSystem(`"${user.name}" definido como Administrador.`);
+    }
+
+    saveDataStore(db);
+    renderUsersManagement();
+    renderPartnerships();
+}
+
+function deleteUserAdmin(userId) {
+    const user = db.users.find(u => u.id === userId);
+    if (!user) return;
+
+    const hasLeads = db.leads.some(l => l.agentId === userId);
+    const hasClients = db.clients.some(c => c.agentId === userId);
+    if (hasLeads || hasClients) {
+        alert(`Não é possível excluir "${user.name}" pois existem leads ou clientes vinculados. Reatribua-os primeiro.`);
+        return;
+    }
+
+    if (!confirm(`Confirma exclusão do usuário "${user.name}"? Esta ação não pode ser desfeita.`)) return;
+
+    db.users = db.users.filter(u => u.id !== userId);
+    saveDataStore(db);
+    logSystem(`Usuário "${user.name}" excluído pelo administrador.`);
+    renderUsersManagement();
+    renderPartnerships();
+    populateSelects();
 }
 
 function openProductModal() {
@@ -1788,7 +1937,10 @@ function saveProduct(event) {
 function populateSelects() {
     const debugSelect = document.getElementById('debug-user-select');
     if (debugSelect) {
-        debugSelect.innerHTML = db.users.map(u => `<option value="${u.id}">${u.name} (${u.role.toUpperCase()})</option>`).join('');
+        debugSelect.innerHTML = db.users.map(u => {
+            const cargo = u.cargo || (u.role === 'agente' ? 'Assessor' : 'Gestor');
+            return `<option value="${u.id}">${u.name} (${cargo})</option>`;
+        }).join('');
     }
 }
 
@@ -1807,7 +1959,8 @@ function formatDate(dateStr) {
 function logSystem(message) {
     const now = new Date();
     const timeStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
-    
+
+    if (!db.logs) db.logs = [];
     db.logs.unshift({
         id: db.logs.length + 1,
         type: "system",
@@ -2155,7 +2308,6 @@ function renderPipeline() {
             }
             
             const barWidth = (stage.totalValue / maxValue * 100).toFixed(1);
-            const bgClass = colorMap[stage.colorClass] || 'pyramid-bg-zinc';
 
             // Get color for progress bar fill
             const fillColors = {
@@ -2345,21 +2497,27 @@ async function loadDataStoreFromCloud() {
         if (rAportes.error) throw rAportes.error;
         if (rFatHistorico.error) throw rFatHistorico.error;
 
+        // If cloud has no users, it hasn't been migrated yet — keep local data intact
+        if (!rUsers.data || rUsers.data.length === 0) {
+            console.log("Supabase conectado, mas banco vazio. Aguardando migração.");
+            return;
+        }
+
         db = {
-            users: rUsers.data || [],
+            users: rUsers.data,
             products: rProducts.data || [],
             leads: rLeads.data || [],
             clients: rClients.data || [],
             stages: rStages.data || [],
             aportes: rAportes.data || [],
-            faturamentoHistorico: rFatHistorico.data || []
+            faturamentoHistorico: rFatHistorico.data || [],
+            logs: db.logs || []  // logs não ficam no Supabase, manter os locais
         };
-        
-        logSystem("Dados carregados com sucesso do Supabase na nuvem.");
+
+        console.log("Dados carregados com sucesso do Supabase.");
     } catch (err) {
         console.error("Falha ao carregar do Supabase:", err);
-        logSystem("Erro de conexão ao carregar dados do Supabase. Usando localBackup.");
-        db = loadDataStore();
+        // Não sobrescreve db — mantém os dados locais já carregados no início do initApp
     }
 }
 
@@ -2433,7 +2591,7 @@ async function migrateLocalDataToSupabase() {
         if (rAportes.error) throw rAportes.error;
         
         if (progressEl) progressEl.innerText = "Enviando histórico de faturamento...";
-        const rFat = await supabaseClient.from('faturamentoHistorico').upsert(localData.faturamentoHistorico);
+        const rFat = await supabaseClient.from('faturamentoHistorico').upsert(localData.faturamentoHistorico, { onConflict: 'period,clientCode' });
         if (rFat.error) throw rFat.error;
         
         if (progressEl) {
@@ -2466,7 +2624,7 @@ async function saveDataStore(data) {
                 supabaseClient.from('leads').upsert(data.leads),
                 supabaseClient.from('clients').upsert(data.clients),
                 supabaseClient.from('aportes').upsert(data.aportes),
-                supabaseClient.from('faturamentoHistorico').upsert(data.faturamentoHistorico)
+                supabaseClient.from('faturamentoHistorico').upsert(data.faturamentoHistorico, { onConflict: 'period,clientCode' })
             ]);
         } catch (err) {
             console.error("Erro na sincronização automática do Supabase:", err);
