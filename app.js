@@ -2803,9 +2803,11 @@ let planningState = {
 async function loadFinancialPlans() {
     if (supabaseMode !== 'CLOUD' || !supabaseClient) return [];
     try {
+        const visibleIds = getVisibleUserIds();
         const { data, error } = await supabaseClient
             .from('financial_plans')
             .select('*, financial_scenarios(*), financial_scenarios.financial_cashflows(*)')
+            .in('agent_id', visibleIds)
             .order('created_at', { ascending: false });
         if (error) throw error;
         return data || [];
@@ -3871,7 +3873,7 @@ async function exportarPDF() {
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, logging: false },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+        pagebreak: { mode: ['css', 'legacy'] },
     };
 
     const element = document.createElement('div');
