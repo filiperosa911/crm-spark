@@ -18,17 +18,15 @@ async function initApp() {
     // 1. Initial Local Load (so that if Supabase is disconnected, we still have local data)
     db = loadDataStore();
     
-    // Check Supabase Configuration
-    let supaUrl = localStorage.getItem('strivo_supabase_url');
-    let supaKey = localStorage.getItem('strivo_supabase_key');
-    
+    // Check Supabase Configuration — config.js defaults, overridable via localStorage
+    let supaUrl = localStorage.getItem('strivo_supabase_url') || (typeof SPARK_CONFIG !== 'undefined' ? SPARK_CONFIG.supabaseUrl : '');
+    let supaKey = localStorage.getItem('strivo_supabase_key') || (typeof SPARK_CONFIG !== 'undefined' ? SPARK_CONFIG.supabaseKey : '');
+
     if (supaUrl) {
         supaUrl = supaUrl.trim().replace(/\/$/, "").replace(/\/rest\/v1\/?$/, "");
-        localStorage.setItem('strivo_supabase_url', supaUrl);
     }
     if (supaKey) {
         supaKey = supaKey.trim();
-        localStorage.setItem('strivo_supabase_key', supaKey);
     }
     
     const cloudStatusBadge = document.getElementById('cloud-status-badge');
