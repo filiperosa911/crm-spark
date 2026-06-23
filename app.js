@@ -1,4 +1,4 @@
-﻿// SPARK PLATFORM // CORE BUSINESS LOGIC & INTERACTION
+// SPARK PLATFORM // CORE BUSINESS LOGIC & INTERACTION
 
 // Global State
 let db = loadDataStore();
@@ -2439,7 +2439,7 @@ function showLoginScreen() {
     if (loginContainer) loginContainer.classList.remove('hidden');
 
     const debugBar = document.querySelector('.debug-bar');
-    if (debugBar) debugBar.classList.add('hidden');
+    if (debugBar) debugBar.classList.remove('hidden'); // Keep debug bar visible for simulator role switching
 
     document.getElementById('login-username').value = '';
     document.getElementById('login-password').value = '';
