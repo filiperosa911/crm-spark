@@ -267,6 +267,7 @@ function switchView(viewId) {
     else if (viewId === 'partnerships') renderPartnerships();
     else if (viewId === 'settings') renderFunnelStages();
     else if (viewId === 'users') renderUsersManagement();
+    else if (viewId === 'planejamentos') renderPlanejamentos();
 }
 
 // Debug Switcher Lógica
@@ -1812,7 +1813,7 @@ async function resetUserPassword(userId) {
     const content = document.getElementById('users-mgmt-credential-content');
 
     if (supabaseMode === 'CLOUD' && supabaseClient && user.email) {
-        const redirectTo = window.location.origin + window.location.pathname;
+        const redirectTo = (typeof SPARK_CONFIG !== 'undefined' && SPARK_CONFIG.appUrl) ? SPARK_CONFIG.appUrl : window.location.origin + window.location.pathname;
         const { error } = await supabaseClient.auth.resetPasswordForEmail(user.email, { redirectTo });
         const errDetail = error ? (error.message || error.msg || JSON.stringify(error) || 'erro desconhecido') : '';
         const msg = error
@@ -2780,3 +2781,1124 @@ window.saveSupabaseConfig = saveSupabaseConfig;
 window.disconnectSupabase = disconnectSupabase;
 window.migrateLocalDataToSupabase = migrateLocalDataToSupabase;
 window.loadDataStoreFromCloud = loadDataStoreFromCloud;
+
+
+// ============================================================
+// MÓDULO DE PLANEJAMENTO FINANCEIRO
+// ============================================================
+
+// Estado local do módulo
+let planningState = {
+    plans: [],          // lista de planos carregados
+    currentPlan: null,  // plano em edição
+    cenarios: [],       // cenários do plano atual
+    cashflows: {},      // { scenarioId: [...cashflows] }
+    charts: {},         // instâncias Chart.js ativas
+};
+
+// ----------------------------------------------------------
+// SUPABASE — CRUD
+// ----------------------------------------------------------
+
+async function loadFinancialPlans() {
+    if (supabaseMode !== 'CLOUD' || !supabaseClient) return [];
+    try {
+        const { data, error } = await supabaseClient
+            .from('financial_plans')
+            .select('*, financial_scenarios(*), financial_scenarios.financial_cashflows(*)')
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        return data || [];
+    } catch (err) {
+        console.error('Erro ao carregar planejamentos:', err);
+        return [];
+    }
+}
+
+async function upsertFinancialPlan(plan) {
+    if (supabaseMode !== 'CLOUD' || !supabaseClient) return plan;
+    const { data, error } = await supabaseClient
+        .from('financial_plans')
+        .upsert(plan, { onConflict: 'id' })
+        .select()
+        .single();
+    if (error) throw error;
+    return data;
+}
+
+async function upsertFinancialScenario(scenario) {
+    if (supabaseMode !== 'CLOUD' || !supabaseClient) return scenario;
+    const { data, error } = await supabaseClient
+        .from('financial_scenarios')
+        .upsert(scenario, { onConflict: 'id' })
+        .select()
+        .single();
+    if (error) throw error;
+    return data;
+}
+
+async function deleteFinancialScenario(scenarioId) {
+    if (supabaseMode !== 'CLOUD' || !supabaseClient) return;
+    await supabaseClient.from('financial_scenarios').delete().eq('id', scenarioId);
+}
+
+async function upsertCashflow(cashflow) {
+    if (supabaseMode !== 'CLOUD' || !supabaseClient) return cashflow;
+    const { data, error } = await supabaseClient
+        .from('financial_cashflows')
+        .upsert(cashflow, { onConflict: 'id' })
+        .select()
+        .single();
+    if (error) throw error;
+    return data;
+}
+
+async function deleteCashflow(cashflowId) {
+    if (supabaseMode !== 'CLOUD' || !supabaseClient) return;
+    await supabaseClient.from('financial_cashflows').delete().eq('id', cashflowId);
+}
+
+// ----------------------------------------------------------
+// RENDER DA SEÇÃO PRINCIPAL
+// ----------------------------------------------------------
+
+async function renderPlanejamentos() {
+    const container = document.getElementById('planejamentos-list');
+    const countEl   = document.getElementById('planejamentos-count');
+    const search    = (document.getElementById('planejamentos-search')?.value || '').toLowerCase();
+
+    container.innerHTML = `<div class="col-span-3 text-center text-zinc-500 font-mono text-xs py-8">Carregando...</div>`;
+
+    planningState.plans = await loadFinancialPlans();
+
+    const filtered = planningState.plans.filter(p =>
+        !search || p.client_name?.toLowerCase().includes(search) || p.client_code?.toLowerCase().includes(search)
+    );
+
+    countEl.textContent = `${filtered.length} planejamento${filtered.length !== 1 ? 's' : ''}`;
+
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="col-span-3 text-center py-16 space-y-3">
+                <div class="text-4xl opacity-20">📋</div>
+                <p class="text-zinc-500 font-mono text-xs uppercase tracking-wider">Nenhum planejamento encontrado</p>
+                <button onclick="openPlanejamentoModal()"
+                    class="bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 font-mono text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors">
+                    Criar primeiro planejamento
+                </button>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = filtered.map(plan => {
+        const cenariosCount = plan.financial_scenarios?.length || 0;
+        const agente = db.users.find(u => u.id === plan.agent_id);
+        const retornoReal = FinancialEngine.calcularRetornoRealAnual(
+            plan.cdi_anual, plan.retorno_cdi, plan.inflacao_anual
+        );
+        return `
+        <div class="planning-list-card" onclick="openPlanejamentoModal('${plan.id}')">
+            <div class="flex items-start justify-between mb-3">
+                <div>
+                    <span class="font-mono text-[9px] text-cyan-500/70 uppercase tracking-wider">${plan.client_code}</span>
+                    <h3 class="font-bold text-white text-sm mt-0.5">${plan.client_name || '—'}</h3>
+                </div>
+                <button onclick="event.stopPropagation(); deletePlanejamento('${plan.id}')"
+                    class="text-zinc-600 hover:text-rose-400 font-mono text-xs transition-colors">✕</button>
+            </div>
+            <div class="grid grid-cols-3 gap-2 mb-3">
+                <div class="text-center">
+                    <div class="font-mono text-[8px] text-zinc-600 uppercase">CDI</div>
+                    <div class="font-mono text-xs text-zinc-300 font-bold">${plan.cdi_anual}%</div>
+                </div>
+                <div class="text-center">
+                    <div class="font-mono text-[8px] text-zinc-600 uppercase">Inflação</div>
+                    <div class="font-mono text-xs text-zinc-300 font-bold">${plan.inflacao_anual}%</div>
+                </div>
+                <div class="text-center">
+                    <div class="font-mono text-[8px] text-zinc-600 uppercase">Retorno Real</div>
+                    <div class="font-mono text-xs text-cyan-400 font-bold">${FinancialEngine.formatPerc(retornoReal)}</div>
+                </div>
+            </div>
+            <div class="flex items-center justify-between">
+                <span class="font-mono text-[9px] text-zinc-600">${cenariosCount} cenário${cenariosCount !== 1 ? 's' : ''}</span>
+                <span class="font-mono text-[9px] text-zinc-600">${agente ? agente.name : ''}</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ----------------------------------------------------------
+// MODAL DE PLANEJAMENTO — ABRIR / FECHAR
+// ----------------------------------------------------------
+
+async function openPlanejamentoModal(planId = null) {
+    const modal = document.getElementById('planning-modal');
+    modal.classList.remove('hidden');
+    document.getElementById('btn-exportar-pdf').classList.add('hidden');
+
+    // Inicializar data padrão
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('planning-data-simulacao').value = today;
+
+    // Popular select de clientes
+    const clientSelect = document.getElementById('planning-client-code');
+    const clients = db.clients || [];
+    const leads   = (db.leads || []).filter(l => l.status === 'fechado' && l.clientCode);
+    const allClients = [
+        ...clients.map(c => ({ code: c.code, name: c.name })),
+        ...leads.filter(l => !clients.find(c => c.code === l.clientCode))
+                .map(l => ({ code: l.clientCode, name: l.name })),
+    ];
+    clientSelect.innerHTML = `<option value="">Selecionar cliente...</option>` +
+        allClients.map(c => `<option value="${c.code}">${c.code} — ${c.name}</option>`).join('');
+
+    if (planId) {
+        // Carregar plano existente
+        document.getElementById('planning-modal-title').textContent = 'Editar Planejamento';
+        try {
+            const { data: plan } = await supabaseClient
+                .from('financial_plans')
+                .select('*, financial_scenarios(*, financial_cashflows(*))')
+                .eq('id', planId)
+                .single();
+
+            planningState.currentPlan = plan;
+            planningState.cenarios = plan.financial_scenarios || [];
+            planningState.cashflows = {};
+            planningState.cenarios.forEach(c => {
+                planningState.cashflows[c.id] = c.financial_cashflows || [];
+            });
+
+            preencherFormularioPlan(plan);
+            document.getElementById('btn-exportar-pdf').classList.remove('hidden');
+        } catch (err) {
+            console.error('Erro ao carregar plano:', err);
+        }
+    } else {
+        // Novo plano
+        document.getElementById('planning-modal-title').textContent = 'Novo Planejamento';
+        document.getElementById('planning-id').value = '';
+        planningState.currentPlan = null;
+        planningState.cenarios = [];
+        planningState.cashflows = {};
+        limparFormularioPlan();
+    }
+
+    document.getElementById('planning-modal-subtitle').textContent =
+        planningState.currentPlan?.client_name || '';
+
+    recalcularRetornoReal();
+    renderCenariosUI();
+    switchPlanningTab(document.querySelector('.planning-tab[data-tab="dados-basicos"]'));
+}
+
+function closePlanejamentoModal() {
+    document.getElementById('planning-modal').classList.add('hidden');
+    // Destruir gráficos para liberar memória
+    Object.values(planningState.charts).forEach(c => c?.destroy());
+    planningState.charts = {};
+}
+
+function preencherFormularioPlan(plan) {
+    document.getElementById('planning-id').value             = plan.id || '';
+    document.getElementById('planning-client-code').value    = plan.client_code || '';
+    document.getElementById('planning-client-name').value    = plan.client_name || '';
+    document.getElementById('planning-cdi').value            = plan.cdi_anual || 11;
+    document.getElementById('planning-retorno-cdi').value    = plan.retorno_cdi || 110;
+    document.getElementById('planning-taxa-juros').value     = plan.taxa_juros || 12.10;
+    document.getElementById('planning-inflacao').value       = plan.inflacao_anual || 5.82;
+    document.getElementById('planning-consideracoes').value  = plan.consideracoes_finais || '';
+
+    // Checkboxes do relatório
+    document.getElementById('rel-capacidade').checked  = plan.exibir_capacidade_poupanca ?? true;
+    document.getElementById('rel-aportes').checked     = plan.exibir_aportes_planejados ?? true;
+    document.getElementById('rel-diagnostico').checked = plan.exibir_grafico_diagnostico ?? true;
+    document.getElementById('rel-evolucao').checked    = plan.exibir_evolucao_reserva ?? true;
+    document.getElementById('rel-comparacao').checked  = plan.exibir_comparacao_cenarios ?? true;
+    document.getElementById('rel-protecao').checked    = plan.exibir_protecao_sugerida ?? false;
+    document.getElementById('rel-sucessao').checked    = plan.exibir_sucessao_vitalicia ?? false;
+
+    if (plan.data_simulacao) {
+        document.getElementById('planning-data-simulacao').value = plan.data_simulacao;
+    }
+}
+
+function limparFormularioPlan() {
+    document.getElementById('planning-id').value            = '';
+    document.getElementById('planning-client-code').value   = '';
+    document.getElementById('planning-client-name').value   = '';
+    document.getElementById('planning-cdi').value           = '11';
+    document.getElementById('planning-retorno-cdi').value   = '110';
+    document.getElementById('planning-taxa-juros').value    = '12.10';
+    document.getElementById('planning-inflacao').value      = '5.82';
+    document.getElementById('planning-consideracoes').value = '';
+    document.getElementById('rel-capacidade').checked       = true;
+    document.getElementById('rel-aportes').checked          = true;
+    document.getElementById('rel-diagnostico').checked      = true;
+    document.getElementById('rel-evolucao').checked         = true;
+    document.getElementById('rel-comparacao').checked       = true;
+    document.getElementById('rel-protecao').checked         = false;
+    document.getElementById('rel-sucessao').checked         = false;
+}
+
+function onClientChange(code) {
+    if (!code) return;
+    const lead = (db.leads || []).find(l => l.clientCode === code);
+    const client = (db.clients || []).find(c => c.code === code);
+    const name = lead?.name || client?.name || '';
+    // Usar primeira palavra como nome curto
+    const nomeCurto = name.split(' ')[0].toUpperCase();
+    document.getElementById('planning-client-name').value = nomeCurto;
+    document.getElementById('planning-modal-subtitle').textContent = name;
+}
+
+function recalcularRetornoReal() {
+    const cdi    = parseFloat(document.getElementById('planning-cdi')?.value || 0);
+    const pct    = parseFloat(document.getElementById('planning-retorno-cdi')?.value || 0);
+    const inf    = parseFloat(document.getElementById('planning-inflacao')?.value || 0);
+    const real   = FinancialEngine.calcularRetornoRealAnual(cdi, pct, inf);
+    const el     = document.getElementById('planning-retorno-real-display');
+    if (el) el.textContent = FinancialEngine.formatPerc(real);
+}
+
+// ----------------------------------------------------------
+// ABAS DO MODAL
+// ----------------------------------------------------------
+
+function switchPlanningTab(tabEl) {
+    if (!tabEl) return;
+    // Desativar todas as abas
+    document.querySelectorAll('.planning-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.planning-tab-content').forEach(c => c.classList.add('hidden'));
+
+    tabEl.classList.add('active');
+    const tabName = tabEl.dataset.tab;
+    document.getElementById(`planning-tab-${tabName}`)?.classList.remove('hidden');
+
+    // Renderizar gráficos ao entrar na aba de gráficos
+    if (tabName === 'graficos') {
+        renderGraficosCompletos();
+    }
+    // Popular select de cenário principal ao entrar na aba relatório
+    if (tabName === 'relatorio') {
+        popularSelectCenarioPrincipal();
+    }
+}
+
+// ----------------------------------------------------------
+// SALVAR PLANO
+// ----------------------------------------------------------
+
+async function savePlanejamento() {
+    const planId     = document.getElementById('planning-id').value || undefined;
+    const clientCode = document.getElementById('planning-client-code').value;
+    if (!clientCode) { alert('Selecione um cliente.'); return; }
+
+    const formato = document.querySelector('input[name="planning-formato"]:checked')?.value || 'completo';
+
+    const planData = {
+        ...(planId ? { id: planId } : {}),
+        client_code:    clientCode,
+        client_name:    document.getElementById('planning-client-name').value,
+        agent_id:       currentUserId,
+        leader_id:      db.users.find(u => u.id === currentUserId)?.parentId || null,
+        cdi_anual:      parseFloat(document.getElementById('planning-cdi').value),
+        retorno_cdi:    parseFloat(document.getElementById('planning-retorno-cdi').value),
+        taxa_juros:     parseFloat(document.getElementById('planning-taxa-juros').value),
+        inflacao_anual: parseFloat(document.getElementById('planning-inflacao').value),
+        consideracoes_finais: document.getElementById('planning-consideracoes').value,
+        formato_relatorio:    formato,
+        exibir_capacidade_poupanca:   document.getElementById('rel-capacidade').checked,
+        exibir_aportes_planejados:    document.getElementById('rel-aportes').checked,
+        exibir_grafico_diagnostico:   document.getElementById('rel-diagnostico').checked,
+        exibir_evolucao_reserva:      document.getElementById('rel-evolucao').checked,
+        exibir_comparacao_cenarios:   document.getElementById('rel-comparacao').checked,
+        exibir_protecao_sugerida:     document.getElementById('rel-protecao').checked,
+        exibir_sucessao_vitalicia:    document.getElementById('rel-sucessao').checked,
+        data_simulacao: document.getElementById('planning-data-simulacao').value,
+    };
+
+    try {
+        const saved = await upsertFinancialPlan(planData);
+        document.getElementById('planning-id').value = saved.id;
+        planningState.currentPlan = saved;
+
+        // Salvar cenários em paralelo
+        await Promise.all(planningState.cenarios.map(async (c, i) => {
+            const scenarioData = { ...c, plan_id: saved.id, ordem: i + 1 };
+            if (!scenarioData.id || scenarioData.id.startsWith('tmp_')) delete scenarioData.id;
+            const savedScenario = await upsertFinancialScenario(scenarioData);
+            // Salvar cashflows do cenário
+            const cfs = planningState.cashflows[c.id] || [];
+            await Promise.all(cfs.map(cf => {
+                const cfData = { ...cf, scenario_id: savedScenario.id };
+                if (!cfData.id || cfData.id.startsWith('tmp_')) delete cfData.id;
+                return upsertCashflow(cfData);
+            }));
+        }));
+
+        document.getElementById('btn-exportar-pdf').classList.remove('hidden');
+        logSystem(`Planejamento de ${planData.client_name} salvo com sucesso.`);
+    } catch (err) {
+        console.error('Erro ao salvar planejamento:', err);
+        alert('Erro ao salvar. Verifique a conexão com o Supabase.');
+    }
+}
+
+async function deletePlanejamento(planId) {
+    if (!confirm('Excluir este planejamento permanentemente?')) return;
+    try {
+        await supabaseClient.from('financial_plans').delete().eq('id', planId);
+        renderPlanejamentos();
+    } catch (err) {
+        console.error('Erro ao excluir:', err);
+    }
+}
+
+// ----------------------------------------------------------
+// CENÁRIOS — UI
+// ----------------------------------------------------------
+
+const CENARIO_CORES = ['#008394', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#ec4899'];
+
+function addCenario() {
+    const idx = planningState.cenarios.length;
+    const novoCenario = {
+        id: `tmp_${Date.now()}`,
+        nome: `Cenário ${idx + 1}`,
+        cor: CENARIO_CORES[idx % CENARIO_CORES.length],
+        ordem: idx + 1,
+        is_visible: true,
+        idade_inicial: 30,
+        vai_trabalhar_ate: 65,
+        expectativa_vida: 90,
+        receita_mensal: 0,
+        percentual_responsabilidade: 100,
+        reserva_inicial: 0,
+        aporte_mensal: 0,
+        retirada_mensal_apos: 0,
+        diferenciar_taxas_apos: false,
+    };
+    planningState.cenarios.push(novoCenario);
+    planningState.cashflows[novoCenario.id] = [];
+    renderCenariosUI();
+}
+
+function removeCenario(idx) {
+    if (planningState.cenarios.length <= 1) {
+        alert('O plano precisa ter pelo menos 1 cenário.');
+        return;
+    }
+    const [removed] = planningState.cenarios.splice(idx, 1);
+    if (removed.id && !removed.id.startsWith('tmp_')) {
+        deleteFinancialScenario(removed.id);
+    }
+    delete planningState.cashflows[removed.id];
+    renderCenariosUI();
+}
+
+function updateCenarioField(idx, field, value) {
+    if (!planningState.cenarios[idx]) return;
+    planningState.cenarios[idx][field] = isNaN(value) || value === '' ? value : Number(value);
+}
+
+function renderCenariosUI() {
+    const container = document.getElementById('cenarios-container');
+    if (!container) return;
+
+    if (planningState.cenarios.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-10 space-y-3">
+                <p class="text-zinc-500 font-mono text-xs">Nenhum cenário adicionado.</p>
+                <button onclick="addCenario()"
+                    class="bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 font-mono text-xs px-4 py-2 rounded uppercase tracking-wider">
+                    + Adicionar primeiro cenário
+                </button>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = planningState.cenarios.map((c, idx) => `
+        <div class="scenario-card space-y-4">
+            <!-- Header do cenário -->
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <span class="scenario-color-dot" style="background:${c.cor}"></span>
+                    <input type="text" value="${c.nome}" placeholder="Nome do cenário"
+                        onchange="updateCenarioField(${idx}, 'nome', this.value)"
+                        class="bg-transparent border-b border-zinc-700 focus:border-cyan-500 text-white font-bold text-sm outline-none pb-0.5 w-40 transition-colors">
+                </div>
+                <button onclick="removeCenario(${idx})" class="text-zinc-600 hover:text-rose-400 font-mono text-xs transition-colors">Remover</button>
+            </div>
+
+            <!-- Dados do cliente neste cenário -->
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div class="space-y-1">
+                    <label class="planning-label">Idade Atual</label>
+                    <input type="number" value="${c.idade_inicial || 30}"
+                        onchange="updateCenarioField(${idx}, 'idade_inicial', this.value)"
+                        class="planning-input font-mono" min="1" max="99">
+                </div>
+                <div class="space-y-1">
+                    <label class="planning-label">Trabalha até (idade)</label>
+                    <input type="number" value="${c.vai_trabalhar_ate || 65}"
+                        onchange="updateCenarioField(${idx}, 'vai_trabalhar_ate', this.value)"
+                        class="planning-input font-mono" min="1" max="99">
+                </div>
+                <div class="space-y-1">
+                    <label class="planning-label">Expectativa de Vida</label>
+                    <input type="number" value="${c.expectativa_vida || 90}"
+                        onchange="updateCenarioField(${idx}, 'expectativa_vida', this.value)"
+                        class="planning-input font-mono" min="1" max="120">
+                </div>
+                <div class="space-y-1">
+                    <label class="planning-label">Reserva Inicial (R$)</label>
+                    <input type="number" value="${c.reserva_inicial || 0}"
+                        onchange="updateCenarioField(${idx}, 'reserva_inicial', this.value)"
+                        class="planning-input font-mono" min="0" step="100">
+                </div>
+                <div class="space-y-1">
+                    <label class="planning-label">Aporte Mensal (R$)</label>
+                    <input type="number" value="${c.aporte_mensal || 0}"
+                        onchange="updateCenarioField(${idx}, 'aporte_mensal', this.value)"
+                        class="planning-input font-mono" min="0" step="50">
+                </div>
+                <div class="space-y-1">
+                    <label class="planning-label">Retirada Mensal Após (R$)</label>
+                    <input type="number" value="${c.retirada_mensal_apos || 0}"
+                        onchange="updateCenarioField(${idx}, 'retirada_mensal_apos', this.value)"
+                        class="planning-input font-mono" min="0" step="50">
+                </div>
+            </div>
+
+            <!-- Cashflows mensais -->
+            <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="font-mono text-[9px] text-zinc-500 uppercase tracking-wider">Aportes/Retiradas por faixa de idade</span>
+                    <button onclick="addCashflow('${c.id}', 'mensal', ${idx})"
+                        class="text-zinc-400 hover:text-cyan-400 font-mono text-[10px] uppercase tracking-wider transition-colors">+ Mensal</button>
+                </div>
+                <div id="cashflows-mensal-${idx}" class="space-y-1">
+                    ${renderCashflowRows(c.id, 'mensal', idx)}
+                </div>
+                <div class="flex items-center justify-between mt-2">
+                    <span class="font-mono text-[9px] text-zinc-500 uppercase tracking-wider">Aportes/Retiradas Anuais ou Únicos</span>
+                    <button onclick="addCashflow('${c.id}', 'anual', ${idx})"
+                        class="text-zinc-400 hover:text-cyan-400 font-mono text-[10px] uppercase tracking-wider transition-colors">+ Anual</button>
+                </div>
+                <div id="cashflows-anual-${idx}" class="space-y-1">
+                    ${renderCashflowRows(c.id, 'anual', idx)}
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderCashflowRows(scenarioId, tipo, scenarioIdx) {
+    const cfs = (planningState.cashflows[scenarioId] || []).filter(cf => cf.tipo === tipo);
+    if (cfs.length === 0) return `<p class="text-zinc-600 font-mono text-[10px] italic pl-1">Nenhum lançamento.</p>`;
+
+    return cfs.map((cf, cfIdx) => `
+        <div class="flex gap-2 items-center text-xs font-mono">
+            <span class="text-zinc-600 w-4">${cfIdx + 1}.</span>
+            <span class="text-zinc-400">Idade ${cf.idade_inicial}–${cf.idade_final}${tipo === 'anual' ? ` (mês ${cf.mes})` : ''}</span>
+            ${cf.aporte ? `<span class="text-emerald-400">+${FinancialEngine.formatBRLCompacto(cf.aporte)}</span>` : ''}
+            ${cf.retirada ? `<span class="text-rose-400">-${FinancialEngine.formatBRLCompacto(cf.retirada)}</span>` : ''}
+            ${cf.observacao ? `<span class="text-zinc-500">${cf.observacao}</span>` : ''}
+            <button onclick="removeCashflow('${scenarioId}', '${cf.id}', ${scenarioIdx})"
+                class="text-zinc-700 hover:text-rose-400 ml-auto transition-colors">✕</button>
+        </div>
+    `).join('');
+}
+
+function addCashflow(scenarioId, tipo, scenarioIdx) {
+    const idadeIni = parseInt(prompt('Idade inicial:', '30')) || 30;
+    const idadeFim = parseInt(prompt('Idade final:', '65'))   || 65;
+    const mes      = tipo === 'anual' ? (parseInt(prompt('Mês (1-12):', '12')) || 12) : null;
+    const aporte   = parseFloat(prompt('Aporte (0 se não houver):', '0')) || 0;
+    const retirada = parseFloat(prompt('Retirada (0 se não houver):', '0')) || 0;
+    const obs      = prompt('Observação (opcional):', '') || '';
+
+    const newCf = {
+        id: `tmp_${Date.now()}`,
+        scenario_id: scenarioId,
+        tipo,
+        idade_inicial: idadeIni,
+        idade_final: idadeFim,
+        mes,
+        aporte,
+        retirada,
+        observacao: obs,
+    };
+
+    if (!planningState.cashflows[scenarioId]) planningState.cashflows[scenarioId] = [];
+    planningState.cashflows[scenarioId].push(newCf);
+    renderCenariosUI();
+}
+
+function removeCashflow(scenarioId, cfId, scenarioIdx) {
+    if (!planningState.cashflows[scenarioId]) return;
+    const cf = planningState.cashflows[scenarioId].find(c => c.id === cfId);
+    if (cf && !cf.id.startsWith('tmp_')) deleteCashflow(cfId);
+    planningState.cashflows[scenarioId] = planningState.cashflows[scenarioId].filter(c => c.id !== cfId);
+    renderCenariosUI();
+}
+
+// ----------------------------------------------------------
+// GRÁFICOS
+// ----------------------------------------------------------
+
+function getParamsAtual() {
+    return {
+        cdiAnual:      parseFloat(document.getElementById('planning-cdi')?.value || 11),
+        percentualCdi: parseFloat(document.getElementById('planning-retorno-cdi')?.value || 110),
+        inflacaoAnual: parseFloat(document.getElementById('planning-inflacao')?.value || 5.82),
+    };
+}
+
+function chartDefaults() {
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                callbacks: {
+                    label: ctx => FinancialEngine.formatBRL(ctx.parsed.y),
+                }
+            }
+        },
+        scales: {
+            x: {
+                grid: { color: 'rgba(255,255,255,0.04)' },
+                ticks: { color: '#52525b', font: { family: 'JetBrains Mono', size: 10 } },
+            },
+            y: {
+                grid: { color: 'rgba(255,255,255,0.04)' },
+                ticks: {
+                    color: '#52525b',
+                    font: { family: 'JetBrains Mono', size: 10 },
+                    callback: v => FinancialEngine.formatBRLCompacto(v),
+                }
+            }
+        }
+    };
+}
+
+function destroyChart(key) {
+    if (planningState.charts[key]) {
+        planningState.charts[key].destroy();
+        delete planningState.charts[key];
+    }
+}
+
+function renderGraficosCompletos() {
+    const params = getParamsAtual();
+    const cenarios = planningState.cenarios.filter(c => c.is_visible !== false);
+    if (cenarios.length === 0) return;
+
+    const cenarioPrincipal = cenarios[0];
+    const cashflowsPrincipal = planningState.cashflows[cenarioPrincipal.id] || [];
+    const indicadores = FinancialEngine.calcularIndicadores(params, cenarioPrincipal, cashflowsPrincipal);
+
+    // --- Indicadores numéricos ---
+    document.getElementById('diagnostico-indicadores').innerHTML = `
+        <div class="diagnostico-kpi">
+            <div class="kpi-label">Reserva na Aposentadoria</div>
+            <div class="kpi-value">${FinancialEngine.formatBRLCompacto(indicadores.reservaAposentadoria)}</div>
+        </div>
+        <div class="diagnostico-kpi">
+            <div class="kpi-label">Retirada Máx. — Preservar</div>
+            <div class="kpi-value" style="color:#34d399">${FinancialEngine.formatBRL(indicadores.retiradaPreservar)}</div>
+        </div>
+        <div class="diagnostico-kpi">
+            <div class="kpi-label">Retirada Máx. — Consumir</div>
+            <div class="kpi-value" style="color:#f59e0b">${FinancialEngine.formatBRL(indicadores.retiradaConsumir)}</div>
+        </div>
+    `;
+
+    // --- Barra de Independência ---
+    const ifPct = Math.min(indicadores.independenciaFinanceira, 200);
+    const ifColor = ifPct >= 100 ? '#34d399' : ifPct >= 60 ? '#f59e0b' : '#f87171';
+    document.getElementById('independence-pct').textContent  = FinancialEngine.formatPerc(indicadores.independenciaFinanceira);
+    document.getElementById('independence-pct').style.color  = ifColor;
+    document.getElementById('independence-bar').style.width  = `${Math.min(ifPct, 100)}%`;
+    document.getElementById('independence-bar').style.background =
+        `linear-gradient(to right, ${ifColor}80, ${ifColor})`;
+
+    // --- Gráfico Diagnóstico ---
+    destroyChart('diagnostico');
+    const ctxD = document.getElementById('chart-diagnostico');
+    if (ctxD) {
+        const dadosD = FinancialEngine.dadosGraficoDiagnostico(params, cenarioPrincipal, cashflowsPrincipal);
+        planningState.charts.diagnostico = new Chart(ctxD, {
+            type: 'line',
+            data: dadosD,
+            options: {
+                ...chartDefaults(),
+                plugins: {
+                    ...chartDefaults().plugins,
+                    legend: { display: true, labels: { color: '#71717a', font: { family: 'JetBrains Mono', size: 10 } } },
+                    annotation: {
+                        annotations: {
+                            aposentadoria: {
+                                type: 'line',
+                                xMin: cenarioPrincipal.vai_trabalhar_ate,
+                                xMax: cenarioPrincipal.vai_trabalhar_ate,
+                                borderColor: 'rgba(245,158,11,0.5)',
+                                borderWidth: 1,
+                                borderDash: [4, 4],
+                                label: {
+                                    content: 'Aposentadoria',
+                                    enabled: true,
+                                    color: '#f59e0b',
+                                    font: { size: 9, family: 'JetBrains Mono' },
+                                    position: 'start',
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // --- Gráfico Evolução ---
+    destroyChart('evolucao');
+    const ctxE = document.getElementById('chart-evolucao');
+    if (ctxE) {
+        planningState.charts.evolucao = new Chart(ctxE, {
+            type: 'line',
+            data: FinancialEngine.dadosGraficoDiagnostico(params, cenarioPrincipal, cashflowsPrincipal),
+            options: chartDefaults(),
+        });
+    }
+
+    // --- Tabela de evolução ---
+    renderTabelaEvolucao(indicadores.projecao, cenarioPrincipal.vai_trabalhar_ate);
+
+    // --- Comparação (só se houver mais de 1 cenário) ---
+    const secaoComp = document.getElementById('comparacao-section');
+    if (cenarios.length > 1) {
+        secaoComp.classList.remove('hidden');
+        destroyChart('comparacao');
+        const ctxC = document.getElementById('chart-comparacao');
+        if (ctxC) {
+            const dadosComp = FinancialEngine.dadosGraficoComparacao(params, cenarios, planningState.cashflows);
+            planningState.charts.comparacao = new Chart(ctxC, {
+                type: 'line',
+                data: dadosComp,
+                options: {
+                    ...chartDefaults(),
+                    plugins: {
+                        ...chartDefaults().plugins,
+                        legend: { display: true, labels: { color: '#71717a', font: { family: 'JetBrains Mono', size: 10 } } },
+                    }
+                }
+            });
+        }
+        renderTabelaComparacao(params, cenarios);
+    } else {
+        secaoComp.classList.add('hidden');
+    }
+}
+
+function renderTabelaEvolucao(projecao, idadeAposentadoria) {
+    const container = document.getElementById('tabela-evolucao-container');
+    if (!container) return;
+
+    const rows = projecao.map(r => `
+        <tr class="${r.idade === idadeAposentadoria ? 'aposentadoria-row' : ''}">
+            <td>${r.ano}</td>
+            <td>${r.idade}</td>
+            <td>${FinancialEngine.formatBRL(r.recInicioAno)}</td>
+            <td class="${r.aporteMensal > 0 ? 'val-positive' : ''}">${r.aporteMensal > 0 ? FinancialEngine.formatBRL(r.aporteMensal) : '—'}</td>
+            <td class="${r.retiradaMensal > 0 ? 'val-negative' : ''}">${r.retiradaMensal > 0 ? FinancialEngine.formatBRL(r.retiradaMensal) : '—'}</td>
+            <td class="val-positive">${FinancialEngine.formatBRL(r.rendimentoMensal)}</td>
+            <td class="val-highlight">${FinancialEngine.formatBRL(r.recFimAno)}</td>
+        </tr>
+    `).join('');
+
+    container.innerHTML = `
+        <table class="projection-table">
+            <thead>
+                <tr>
+                    <th>Ano</th><th>Idade</th>
+                    <th>Rec. Fin. Início</th>
+                    <th>Aporte Mensal</th>
+                    <th>Retirada Mensal</th>
+                    <th>Rendimento Mensal</th>
+                    <th>Rec. Fin. Final</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+}
+
+function renderTabelaComparacao(params, cenarios) {
+    const container = document.getElementById('tabela-comparacao-container');
+    if (!container) return;
+
+    const projecoes = cenarios.map(c =>
+        FinancialEngine.calcularProjecao(params, c, planningState.cashflows[c.id] || [])
+    );
+    const maxRows = Math.max(...projecoes.map(p => p.length));
+
+    const headerCols = cenarios.map(c => `<th>${c.nome}</th>`).join('');
+    const rows = Array.from({ length: maxRows }, (_, i) => {
+        const ref = projecoes[0][i];
+        if (!ref) return '';
+        const cols = projecoes.map(p => {
+            const r = p[i];
+            return r ? `<td class="val-highlight">${FinancialEngine.formatBRL(r.recFimAno)}</td>` : '<td>—</td>';
+        }).join('');
+        return `<tr><td>${ref.ano}</td><td>${ref.idade}</td>${cols}</tr>`;
+    }).join('');
+
+    container.innerHTML = `
+        <table class="projection-table">
+            <thead><tr><th>Ano</th><th>Idade</th>${headerCols}</tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+}
+
+function popularSelectCenarioPrincipal() {
+    const sel = document.getElementById('planning-cenario-principal');
+    if (!sel) return;
+    sel.innerHTML = planningState.cenarios.map((c, i) =>
+        `<option value="${c.id}" ${i === 0 ? 'selected' : ''}>${c.nome}</option>`
+    ).join('');
+}
+
+// ----------------------------------------------------------
+// EXPORTAR PDF
+// ----------------------------------------------------------
+
+async function exportarPDF() {
+    const plan = planningState.currentPlan;
+    if (!plan) { alert('Salve o planejamento antes de exportar.'); return; }
+
+    const params = getParamsAtual();
+    const cenarios = planningState.cenarios.filter(c => c.is_visible !== false);
+    if (cenarios.length === 0) { alert('Adicione pelo menos um cenário.'); return; }
+
+    const cenarioPrincipalId = document.getElementById('planning-cenario-principal')?.value;
+    const cenarioPrincipal = cenarios.find(c => c.id === cenarioPrincipalId) || cenarios[0];
+    const cashflowsPrincipal = planningState.cashflows[cenarioPrincipal.id] || [];
+    const indicadores = FinancialEngine.calcularIndicadores(params, cenarioPrincipal, cashflowsPrincipal);
+
+    const clientName = plan.client_name || 'CLIENTE';
+    const agente = db.users.find(u => u.id === plan.agent_id);
+    const nomeAgente = agente ? agente.name : 'Assessor';
+    const dataFormatada = new Date().toLocaleDateString('pt-BR');
+
+    // Gerar tabela de evolução para o PDF
+    const tabelaEvolucaoHTML = indicadores.projecao.map(r => `
+        <tr style="${r.idade === cenarioPrincipal.vai_trabalhar_ate ? 'background:#0e4f5c;font-weight:700;' : ''}">
+            <td>${r.ano}</td><td>${r.idade}</td>
+            <td style="text-align:right">${FinancialEngine.formatBRL(r.recInicioAno)}</td>
+            <td style="text-align:right;color:${r.aporteMensal > 0 ? '#34d399' : '#6b7280'}">${r.aporteMensal > 0 ? FinancialEngine.formatBRL(r.aporteMensal) : '—'}</td>
+            <td style="text-align:right;color:${r.retiradaMensal > 0 ? '#f87171' : '#6b7280'}">${r.retiradaMensal > 0 ? FinancialEngine.formatBRL(r.retiradaMensal) : '—'}</td>
+            <td style="text-align:right;color:#34d399">${FinancialEngine.formatBRL(r.rendimentoMensal)}</td>
+            <td style="text-align:right;color:#22d3ee;font-weight:700">${FinancialEngine.formatBRL(r.recFimAno)}</td>
+        </tr>
+    `).join('');
+
+    // Gerar HTML do PDF
+    const pdfHTML = `
+    <html><head>
+    <meta charset="UTF-8">
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: 'Inter', Arial, sans-serif; font-size: 12px; color: #1e293b; background: white; }
+        .page { width: 210mm; min-height: 297mm; padding: 0; page-break-after: always; position: relative; }
+        .page:last-child { page-break-after: auto; }
+
+        /* Capa */
+        .cover { background: #0d4f5c; display: flex; flex-direction: column; justify-content: space-between;
+                 padding: 60px 50px; min-height: 297mm; }
+        .cover-logo { font-family: Arial Black, sans-serif; font-size: 48px; font-weight: 900; color: white;
+                      letter-spacing: 4px; }
+        .cover-client { color: #5eead4; font-size: 28px; font-weight: 700; }
+        .cover-subtitle { color: rgba(255,255,255,0.6); font-size: 14px; margin-top: 8px; }
+
+        /* Header de seção */
+        .section-header { background: #0d4f5c; padding: 16px 30px; display: flex; align-items: center;
+                          justify-content: space-between; }
+        .section-title { color: white; font-size: 16px; font-weight: 700; }
+        .section-logo { color: white; font-weight: 900; font-size: 18px; letter-spacing: 2px; }
+
+        /* Conteúdo */
+        .content { padding: 30px; }
+        h2 { font-size: 18px; font-weight: 700; color: #0d4f5c; margin-bottom: 16px; }
+        h3 { font-size: 13px; font-weight: 700; color: #0d4f5c; margin: 16px 0 8px; }
+
+        /* Tabelas */
+        table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 16px; }
+        th { background: #f1f5f9; color: #64748b; font-weight: 600; padding: 6px 8px;
+             text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; }
+        td { padding: 5px 8px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+        td.right { text-align: right; }
+        .highlight-row { background: #e0f2fe; font-weight: 700; }
+
+        /* KPIs */
+        .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+        .kpi-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center; }
+        .kpi-label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 4px; }
+        .kpi-value { font-size: 16px; font-weight: 700; color: #0d4f5c; }
+
+        /* Barra IF */
+        .if-bar-container { margin: 12px 0; }
+        .if-bar-track { background: #e2e8f0; height: 10px; border-radius: 5px; overflow: hidden; }
+        .if-bar-fill { height: 10px; border-radius: 5px; background: linear-gradient(to right, #0d4f5c, #22d3ee); }
+        .if-label { display: flex; justify-content: space-between; font-size: 9px; color: #64748b; margin-bottom: 4px; }
+
+        /* Footer */
+        .page-footer { position: absolute; bottom: 20px; left: 0; right: 0;
+                       display: flex; justify-content: space-between; align-items: center;
+                       padding: 0 30px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+        .footer-text { font-size: 9px; color: #94a3b8; }
+        .page-num { font-size: 11px; font-weight: 700; color: #0d4f5c; }
+
+        /* Disclaimer */
+        .disclaimer { font-size: 9px; color: #64748b; line-height: 1.6; }
+    </style>
+    </head><body>
+
+    <!-- PÁGINA 1: CAPA -->
+    <div class="page">
+        <div class="cover">
+            <div class="cover-logo">SPARK</div>
+            <div>
+                <div class="cover-client">${clientName},</div>
+                <div class="cover-subtitle">o seu planejamento financeiro</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PÁGINA 2: CONFERÊNCIA DE DADOS -->
+    <div class="page" style="padding-bottom:50px">
+        <div class="section-header">
+            <span class="section-title">Conferência de Dados</span>
+            <span class="section-logo">SPARK</span>
+        </div>
+        <div class="content">
+            <p style="margin-bottom:16px;color:#334155;line-height:1.6">
+                Olá ${clientName},<br><br>
+                Agradeço o tempo dedicado para nossa conversa de hoje. Estou enviando um relatório com os principais
+                destaques financeiros que comentamos.
+            </p>
+            <h3>PARÂMETROS</h3>
+            <table>
+                <thead><tr>
+                    <th>% CDI Anual</th><th>% Retorno CDI</th><th>Taxa de Juros</th>
+                    <th>% Inflação Anual</th><th>% Retorno Anual Real</th><th>Data da Simulação</th>
+                </tr></thead>
+                <tbody><tr>
+                    <td>${plan.cdi_anual}%</td>
+                    <td>${plan.retorno_cdi}%</td>
+                    <td>${plan.taxa_juros}%</td>
+                    <td>${plan.inflacao_anual}%</td>
+                    <td style="color:#0d4f5c;font-weight:700">${FinancialEngine.formatPerc(indicadores.retornoRealAnual)}</td>
+                    <td>${dataFormatada}</td>
+                </tr></tbody>
+            </table>
+            <h3>DADOS DO CLIENTE</h3>
+            <table>
+                <thead><tr>
+                    <th>Nome</th><th>Idade Atual</th><th>Trabalha Até</th>
+                    <th>Expectativa de Vida</th><th>Aporte Mensal</th><th>Retirada Mensal</th>
+                </tr></thead>
+                <tbody><tr>
+                    <td>${clientName}</td>
+                    <td>${cenarioPrincipal.idade_inicial} anos</td>
+                    <td>${cenarioPrincipal.vai_trabalhar_ate} anos</td>
+                    <td>${cenarioPrincipal.expectativa_vida} anos</td>
+                    <td>${FinancialEngine.formatBRL(cenarioPrincipal.aporte_mensal)}</td>
+                    <td>${FinancialEngine.formatBRL(cenarioPrincipal.retirada_mensal_apos)}</td>
+                </tr></tbody>
+            </table>
+        </div>
+        <div class="page-footer">
+            <span class="footer-text">Elaborado por: ${nomeAgente}</span>
+            <span class="page-num">1</span>
+        </div>
+    </div>
+
+    <!-- PÁGINA 3: DIAGNÓSTICO -->
+    <div class="page" style="padding-bottom:50px">
+        <div class="section-header">
+            <span class="section-title">Diagnóstico: Aposentadoria &amp; Independência Financeira</span>
+            <span class="section-logo">SPARK</span>
+        </div>
+        <div class="content">
+            <div class="kpi-grid">
+                <div class="kpi-box">
+                    <div class="kpi-label">Reserva na Aposentadoria</div>
+                    <div class="kpi-value">${FinancialEngine.formatBRLCompacto(indicadores.reservaAposentadoria)}</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="kpi-label">Retirada Máx. Preservar Reserva</div>
+                    <div class="kpi-value" style="color:#059669">${FinancialEngine.formatBRL(indicadores.retiradaPreservar)}/mês</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="kpi-label">Retirada Máx. Consumir Reserva</div>
+                    <div class="kpi-value" style="color:#d97706">${FinancialEngine.formatBRL(indicadores.retiradaConsumir)}/mês</div>
+                </div>
+            </div>
+            <div class="if-bar-container">
+                <div class="if-label">
+                    <span>Independência Financeira até ${cenarioPrincipal.expectativa_vida} anos</span>
+                    <span style="font-weight:700;color:#0d4f5c">${FinancialEngine.formatPerc(indicadores.independenciaFinanceira)}</span>
+                </div>
+                <div class="if-bar-track">
+                    <div class="if-bar-fill" style="width:${Math.min(indicadores.independenciaFinanceira, 100)}%"></div>
+                </div>
+            </div>
+            <p style="font-size:10px;color:#64748b;line-height:1.7;margin-top:20px">
+                No caso de não realização de novos aportes além dos já planejados, existem opções de padrão de vida para a aposentadoria:<br><br>
+                ■ Retirar o total de <strong>${FinancialEngine.formatBRL(indicadores.retiradaPreservar)}</strong> por mês, para viver de
+                rentabilidade mantendo reserva no valor de <strong>${FinancialEngine.formatBRL(indicadores.reservaAposentadoria)}</strong>,
+                tornando assim a expectativa de vida financeira ilimitada;<br><br>
+                ■ Retirar o total de <strong>${FinancialEngine.formatBRL(indicadores.retiradaConsumir)}</strong> por mês, para a reserva ser
+                suficiente até os <strong>${cenarioPrincipal.expectativa_vida}</strong> anos.
+            </p>
+        </div>
+        <div class="page-footer">
+            <span class="footer-text">Elaborado por: ${nomeAgente}</span>
+            <span class="page-num">2</span>
+        </div>
+    </div>
+
+    <!-- PÁGINA 4+: EVOLUÇÃO DA RESERVA -->
+    <div class="page" style="padding-bottom:50px">
+        <div class="section-header">
+            <span class="section-title">Evolução da Reserva Financeira</span>
+            <span class="section-logo">SPARK</span>
+        </div>
+        <div class="content">
+            <table>
+                <thead><tr>
+                    <th>Ano</th><th>Idade</th>
+                    <th class="right">Rec. Fin. Início</th>
+                    <th class="right">Aporte Mensal</th>
+                    <th class="right">Retirada Mensal</th>
+                    <th class="right">Rendimento Mensal</th>
+                    <th class="right">Rec. Fin. Final</th>
+                </tr></thead>
+                <tbody>${tabelaEvolucaoHTML}</tbody>
+            </table>
+            <p style="font-size:10px;color:#64748b;line-height:1.7;margin-top:12px;text-align:center">
+                Com uma reserva inicial de <strong>${FinancialEngine.formatBRL(cenarioPrincipal.reserva_inicial)}</strong>
+                mais a realização de aportes no valor total de <strong>${FinancialEngine.formatBRL(indicadores.totalAportado)}</strong>
+                e um rendimento total de <strong>${FinancialEngine.formatBRL(indicadores.totalRendimento)}</strong>,
+                a reserva no início da aposentadoria será de <strong>${FinancialEngine.formatBRL(indicadores.reservaAposentadoria)}</strong>.<br>
+                <em>Importante: Os aportes planejados precisam ser reajustados anualmente pela inflação para que o poder de compra seja mantido.</em>
+            </p>
+        </div>
+        <div class="page-footer">
+            <span class="footer-text">Elaborado por: ${nomeAgente}</span>
+            <span class="page-num">3</span>
+        </div>
+    </div>
+
+    <!-- PÁGINA: COMPARAÇÃO (se houver mais de 1 cenário) -->
+    ${cenarios.length > 1 ? (() => {
+        const tabelaComp = (() => {
+            const projecoes = cenarios.map(c =>
+                FinancialEngine.calcularProjecao(params, c, planningState.cashflows[c.id] || [])
+            );
+            const maxRows = Math.max(...projecoes.map(p => p.length));
+            const headers = cenarios.map(c => `<th class="right">${c.nome}</th>`).join('');
+            const rows = Array.from({ length: maxRows }, (_, i) => {
+                const ref = projecoes[0][i];
+                if (!ref) return '';
+                const cols = projecoes.map(p => {
+                    const r = p[i];
+                    return r ? `<td class="right" style="color:#0d4f5c;font-weight:700">${FinancialEngine.formatBRL(r.recFimAno)}</td>` : '<td>—</td>';
+                }).join('');
+                return `<tr><td>${ref.ano}</td><td>${ref.idade}</td>${cols}</tr>`;
+            }).join('');
+            return `<table><thead><tr><th>Ano</th><th>Idade</th>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+        })();
+        return `
+        <div class="page" style="padding-bottom:50px">
+            <div class="section-header">
+                <span class="section-title">Comparação de Cenários</span>
+                <span class="section-logo">SPARK</span>
+            </div>
+            <div class="content">${tabelaComp}</div>
+            <div class="page-footer">
+                <span class="footer-text">Elaborado por: ${nomeAgente}</span>
+                <span class="page-num">4</span>
+            </div>
+        </div>`;
+    })() : ''}
+
+    <!-- PÁGINA: DISCLAIMER -->
+    <div class="page" style="padding-bottom:50px">
+        <div class="section-header">
+            <span class="section-title">Disclaimer</span>
+            <span class="section-logo">SPARK</span>
+        </div>
+        <div class="content">
+            <p class="disclaimer">
+                <strong>Nota Importante:</strong> Este relatório é elaborado como sugestão ao desenvolvido pelo cliente
+                e não deve ser considerado como recomendação de investimentos, de caráter definitivo. Estou enviando
+                aqui informações que podem ajudar a guiar os objetivos e tomadas de decisões financeiras.<br><br>
+                Os cenários apresentados são simulações baseadas em premissas históricas e projeções macroeconômicas que
+                podem não se concretizar. Retornos passados não garantem retornos futuros.<br><br>
+                Este relatório não substitui a análise personalizada de um profissional devidamente habilitado para as
+                decisões financeiras do leitor. As informações aqui presentes são de caráter informativo e educacional.
+                <br><br>
+                <strong>Segurança dos Dados:</strong> As informações pessoais e financeiras contidas neste relatório são
+                de uso exclusivo do cliente e do assessor responsável, sendo tratadas com total sigilo e
+                responsabilidade pelo assessor que o acompanha.
+            </p>
+        </div>
+        <div class="page-footer">
+            <span class="footer-text">Elaborado por: ${nomeAgente} em ${dataFormatada}</span>
+        </div>
+    </div>
+
+    </body></html>`;
+
+    // Gerar PDF com html2pdf
+    const opt = {
+        margin: 0,
+        filename: `planejamento-${clientName.toLowerCase()}-${new Date().toISOString().split('T')[0]}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+    };
+
+    const element = document.createElement('div');
+    element.innerHTML = pdfHTML;
+    document.body.appendChild(element);
+
+    try {
+        await html2pdf().set(opt).from(element).save();
+    } finally {
+        document.body.removeChild(element);
+    }
+}
+
+// ----------------------------------------------------------
+// EXPORTAÇÕES GLOBAIS DO MÓDULO
+// ----------------------------------------------------------
+window.renderPlanejamentos    = renderPlanejamentos;
+window.openPlanejamentoModal  = openPlanejamentoModal;
+window.closePlanejamentoModal = closePlanejamentoModal;
+window.savePlanejamento       = savePlanejamento;
+window.deletePlanejamento     = deletePlanejamento;
+window.switchPlanningTab      = switchPlanningTab;
+window.addCenario             = addCenario;
+window.removeCenario          = removeCenario;
+window.updateCenarioField     = updateCenarioField;
+window.addCashflow            = addCashflow;
+window.removeCashflow         = removeCashflow;
+window.exportarPDF            = exportarPDF;
+window.onClientChange         = onClientChange;
+window.recalcularRetornoReal  = recalcularRetornoReal;

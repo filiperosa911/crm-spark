@@ -100,6 +100,9 @@
                     <a href="#" data-target="partnerships" class="sidebar-link">
                         <span>💼</span> Parcerias / Cadastro
                     </a>
+                    <a href="#" data-target="planejamentos" class="sidebar-link">
+                        <span>📋</span> Planejamentos
+                    </a>
                     <a href="#" data-target="dashboard" class="sidebar-link">
                         <span>📊</span> Painel Executivo
                     </a>
@@ -790,7 +793,303 @@
                 </div>
             </div>
 
+            <!-- ================= view-planejamentos ================= -->
+            <div id="view-planejamentos" class="app-view hidden space-y-8">
+                <div class="flex flex-col sm:flex-row justify-between sm:items-center border-b border-zinc-900 pb-4 gap-4">
+                    <div>
+                        <h2 class="text-2xl font-extrabold tracking-tight text-white font-sans">Planejamentos Financeiros</h2>
+                        <p class="text-zinc-500 text-xs mt-1 font-mono">Simulações de aposentadoria e independência financeira por cliente</p>
+                    </div>
+                    <button onclick="openPlanejamentoModal()"
+                        class="bg-cyan-500 hover:bg-cyan-400 text-black font-bold px-4 py-2 rounded font-mono text-xs uppercase transition-all shrink-0">
+                        + Novo Planejamento
+                    </button>
+                </div>
+
+                <!-- Filtros -->
+                <div class="flex gap-3 flex-wrap items-center">
+                    <input type="text" id="planejamentos-search" placeholder="Buscar por cliente..."
+                        oninput="renderPlanejamentos()"
+                        class="bg-slate-900 border border-zinc-800 rounded px-3 py-1.5 text-zinc-200 text-xs font-mono focus:outline-none focus:border-cyan-500 w-64">
+                    <span id="planejamentos-count" class="font-mono text-[10px] text-zinc-500 uppercase tracking-wider"></span>
+                </div>
+
+                <!-- Lista de planejamentos -->
+                <div id="planejamentos-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    <!-- Renderizado por renderPlanejamentos() -->
+                </div>
+            </div>
+
         </main>
+    </div>
+
+    <!-- ================= MODAL: PLANEJAMENTO FINANCEIRO ================= -->
+    <div id="planning-modal" class="modal-overlay fixed inset-0 z-[60] hidden">
+        <div class="fixed inset-0 bg-black/70 backdrop-blur-sm" onclick="closePlanejamentoModal()"></div>
+        <div class="relative z-10 flex items-start justify-center min-h-full p-4 pt-8">
+            <div class="bg-[#0b1022] border border-zinc-800 rounded-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col shadow-2xl">
+
+                <!-- Header do modal -->
+                <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
+                    <div>
+                        <h3 id="planning-modal-title" class="font-bold text-white text-base font-sans">Planejamento Financeiro</h3>
+                        <p id="planning-modal-subtitle" class="text-zinc-500 text-xs font-mono mt-0.5"></p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <button onclick="exportarPDF()" id="btn-exportar-pdf"
+                            class="hidden bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 font-mono text-xs px-4 py-1.5 rounded uppercase tracking-wider transition-colors flex items-center gap-2">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                            Exportar PDF
+                        </button>
+                        <button onclick="savePlanejamento()"
+                            class="bg-cyan-500 hover:bg-cyan-400 text-black font-bold px-4 py-1.5 rounded font-mono text-xs uppercase tracking-wider transition-all">
+                            Salvar
+                        </button>
+                        <button onclick="closePlanejamentoModal()" class="text-zinc-500 hover:text-white font-mono text-sm ml-2">
+                            ✕
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Stepper de abas -->
+                <div class="flex border-b border-zinc-800 shrink-0 overflow-x-auto">
+                    <button class="planning-tab active" data-tab="dados-basicos" onclick="switchPlanningTab(this)">
+                        <span class="planning-tab-num">1</span> Dados Básicos
+                    </button>
+                    <button class="planning-tab" data-tab="simulacao" onclick="switchPlanningTab(this)">
+                        <span class="planning-tab-num">2</span> Simulação
+                    </button>
+                    <button class="planning-tab" data-tab="graficos" onclick="switchPlanningTab(this)">
+                        <span class="planning-tab-num">3</span> Gráficos
+                    </button>
+                    <button class="planning-tab" data-tab="relatorio" onclick="switchPlanningTab(this)">
+                        <span class="planning-tab-num">4</span> Relatório
+                    </button>
+                    <button class="planning-tab" data-tab="consideracoes" onclick="switchPlanningTab(this)">
+                        <span class="planning-tab-num">5</span> Considerações
+                    </button>
+                </div>
+
+                <!-- Conteúdo das abas -->
+                <div class="flex-1 overflow-y-auto">
+                    <input type="hidden" id="planning-id">
+
+                    <!-- ABA 1: DADOS BÁSICOS -->
+                    <div id="planning-tab-dados-basicos" class="planning-tab-content p-6 space-y-6">
+
+                        <!-- Seleção de cliente -->
+                        <div class="glass-card p-5 space-y-4">
+                            <h4 class="font-mono text-[10px] text-zinc-400 uppercase tracking-wider font-bold">// Cliente</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="space-y-1">
+                                    <label class="planning-label">Cliente</label>
+                                    <select id="planning-client-code" onchange="onClientChange(this.value)"
+                                        class="planning-input">
+                                        <option value="">Selecionar cliente...</option>
+                                    </select>
+                                </div>
+                                <div class="space-y-1">
+                                    <label class="planning-label">Nome no Relatório</label>
+                                    <input type="text" id="planning-client-name" placeholder="Nome curto para o relatório"
+                                        class="planning-input">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Parâmetros macroeconômicos -->
+                        <div class="glass-card p-5 space-y-4">
+                            <h4 class="font-mono text-[10px] text-zinc-400 uppercase tracking-wider font-bold">// Parâmetros Macroeconômicos</h4>
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                <div class="space-y-1">
+                                    <label class="planning-label">% CDI Anual</label>
+                                    <input type="number" id="planning-cdi" value="11" step="0.01" oninput="recalcularRetornoReal()"
+                                        class="planning-input font-mono">
+                                </div>
+                                <div class="space-y-1">
+                                    <label class="planning-label">% Retorno sobre CDI</label>
+                                    <input type="number" id="planning-retorno-cdi" value="110" step="0.01" oninput="recalcularRetornoReal()"
+                                        class="planning-input font-mono">
+                                </div>
+                                <div class="space-y-1">
+                                    <label class="planning-label">Taxa de Juros Anual</label>
+                                    <input type="number" id="planning-taxa-juros" value="12.10" step="0.01"
+                                        class="planning-input font-mono">
+                                </div>
+                                <div class="space-y-1">
+                                    <label class="planning-label">% Inflação Anual</label>
+                                    <input type="number" id="planning-inflacao" value="5.82" step="0.01" oninput="recalcularRetornoReal()"
+                                        class="planning-input font-mono">
+                                </div>
+                                <div class="space-y-1 md:col-span-2">
+                                    <label class="planning-label">% Retorno Anual Real (calculado)</label>
+                                    <div id="planning-retorno-real-display"
+                                        class="planning-input font-mono bg-cyan-500/5 border-cyan-500/30 text-cyan-400 font-bold cursor-default">
+                                        —
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Data da simulação -->
+                        <div class="glass-card p-5 space-y-4">
+                            <h4 class="font-mono text-[10px] text-zinc-400 uppercase tracking-wider font-bold">// Meta</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="space-y-1">
+                                    <label class="planning-label">Data da Simulação</label>
+                                    <input type="date" id="planning-data-simulacao"
+                                        class="planning-input font-mono">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ABA 2: SIMULAÇÃO -->
+                    <div id="planning-tab-simulacao" class="planning-tab-content hidden p-6 space-y-6">
+
+                        <!-- Lista de cenários -->
+                        <div class="flex items-center justify-between">
+                            <h4 class="font-mono text-[10px] text-zinc-400 uppercase tracking-wider font-bold">// Cenários de Simulação</h4>
+                            <button onclick="addCenario()"
+                                class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 font-mono text-xs px-3 py-1.5 rounded uppercase tracking-wider transition-colors">
+                                + Adicionar Cenário
+                            </button>
+                        </div>
+
+                        <div id="cenarios-container" class="space-y-4">
+                            <!-- Renderizado por renderCenariosUI() -->
+                        </div>
+                    </div>
+
+                    <!-- ABA 3: GRÁFICOS -->
+                    <div id="planning-tab-graficos" class="planning-tab-content hidden p-6 space-y-8">
+                        <!-- Diagnóstico -->
+                        <div class="glass-card p-5 space-y-4">
+                            <div class="flex items-center justify-between">
+                                <h4 class="font-mono text-[10px] text-zinc-400 uppercase tracking-wider font-bold">// Diagnóstico: Aposentadoria & Independência Financeira</h4>
+                            </div>
+                            <div id="diagnostico-indicadores" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <!-- Indicadores numéricos -->
+                            </div>
+                            <div class="independence-bar-container">
+                                <div class="flex justify-between text-xs font-mono mb-1">
+                                    <span class="text-zinc-400">Independência Financeira</span>
+                                    <span id="independence-pct" class="text-cyan-400 font-bold">—</span>
+                                </div>
+                                <div class="w-full bg-zinc-800 rounded-full h-3">
+                                    <div id="independence-bar" class="h-3 rounded-full bg-gradient-to-r from-cyan-600 to-cyan-400 transition-all duration-700" style="width:0%"></div>
+                                </div>
+                            </div>
+                            <div class="chart-container" style="height:280px; position:relative;">
+                                <canvas id="chart-diagnostico"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Evolução da Reserva -->
+                        <div class="glass-card p-5 space-y-4">
+                            <h4 class="font-mono text-[10px] text-zinc-400 uppercase tracking-wider font-bold">// Evolução da Reserva Financeira</h4>
+                            <div class="chart-container" style="height:250px; position:relative;">
+                                <canvas id="chart-evolucao"></canvas>
+                            </div>
+                            <div id="tabela-evolucao-container" class="overflow-x-auto max-h-[320px] overflow-y-auto">
+                                <!-- Tabela renderizada -->
+                            </div>
+                        </div>
+
+                        <!-- Comparação de cenários -->
+                        <div id="comparacao-section" class="glass-card p-5 space-y-4 hidden">
+                            <h4 class="font-mono text-[10px] text-zinc-400 uppercase tracking-wider font-bold">// Comparação de Cenários</h4>
+                            <div class="chart-container" style="height:250px; position:relative;">
+                                <canvas id="chart-comparacao"></canvas>
+                            </div>
+                            <div id="tabela-comparacao-container" class="overflow-x-auto max-h-[280px] overflow-y-auto">
+                                <!-- Tabela de comparação -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ABA 4: RELATÓRIO -->
+                    <div id="planning-tab-relatorio" class="planning-tab-content hidden p-6 space-y-6">
+                        <div class="glass-card p-5 space-y-5">
+                            <h4 class="font-mono text-[10px] text-zinc-400 uppercase tracking-wider font-bold">// Configurações do Relatório PDF</h4>
+
+                            <!-- Seleção de cenário principal -->
+                            <div class="space-y-2">
+                                <label class="planning-label">Cenário principal do relatório</label>
+                                <select id="planning-cenario-principal" class="planning-input">
+                                    <!-- Populado dinamicamente -->
+                                </select>
+                            </div>
+
+                            <!-- Formato -->
+                            <div class="space-y-2">
+                                <label class="planning-label">Formato do relatório</label>
+                                <div class="flex gap-4">
+                                    <label class="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                                        <input type="radio" name="planning-formato" value="completo" checked class="accent-cyan-500"> Completo
+                                    </label>
+                                    <label class="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                                        <input type="radio" name="planning-formato" value="resumido" class="accent-cyan-500"> Resumido
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Seções do relatório -->
+                            <div class="space-y-2">
+                                <label class="planning-label">Seções a exibir</label>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <label class="planning-checkbox-label">
+                                        <input type="checkbox" id="rel-capacidade" checked class="accent-cyan-500">
+                                        Capacidade de Poupança
+                                    </label>
+                                    <label class="planning-checkbox-label">
+                                        <input type="checkbox" id="rel-aportes" checked class="accent-cyan-500">
+                                        Aportes e Retiradas Planejados
+                                    </label>
+                                    <label class="planning-checkbox-label">
+                                        <input type="checkbox" id="rel-diagnostico" checked class="accent-cyan-500">
+                                        Gráfico Diagnóstico Aposentadoria
+                                    </label>
+                                    <label class="planning-checkbox-label">
+                                        <input type="checkbox" id="rel-evolucao" checked class="accent-cyan-500">
+                                        Evolução da Reserva Financeira
+                                    </label>
+                                    <label class="planning-checkbox-label">
+                                        <input type="checkbox" id="rel-comparacao" checked class="accent-cyan-500">
+                                        Comparação de Cenários
+                                    </label>
+                                    <label class="planning-checkbox-label">
+                                        <input type="checkbox" id="rel-protecao" class="accent-cyan-500">
+                                        Proteção Sugerida
+                                    </label>
+                                    <label class="planning-checkbox-label">
+                                        <input type="checkbox" id="rel-sucessao" class="accent-cyan-500">
+                                        Sucessão Vitalícia
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Botão exportar -->
+                            <button onclick="exportarPDF()"
+                                class="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-bold py-3 rounded font-mono text-xs uppercase tracking-widest transition-all mt-2 flex items-center justify-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                Gerar e Baixar PDF
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ABA 5: CONSIDERAÇÕES -->
+                    <div id="planning-tab-consideracoes" class="planning-tab-content hidden p-6 space-y-4">
+                        <div class="glass-card p-5 space-y-4">
+                            <h4 class="font-mono text-[10px] text-zinc-400 uppercase tracking-wider font-bold">// Considerações Finais</h4>
+                            <p class="text-zinc-500 text-xs">Texto livre que aparece no relatório PDF ao cliente.</p>
+                            <textarea id="planning-consideracoes" rows="12"
+                                placeholder="Escreva aqui as considerações e orientações personalizadas para o cliente..."
+                                class="w-full bg-slate-900 border border-zinc-800 rounded p-3 text-zinc-200 text-sm font-sans focus:outline-none focus:border-cyan-500 resize-y leading-relaxed"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- ================= MODAIS OVERLAYS ================= -->
@@ -1218,6 +1517,12 @@
     <script src="config.js"></script>
     <!-- Supabase Client JS Library CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Chart.js para gráficos de simulação -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- html2pdf.js para geração de PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- Motor de cálculos financeiros -->
+    <script src="financial-engine.js"></script>
     <!-- Data Store JS Library -->
     <script src="mock-data.js"></script>
     <!-- App Logic Controller -->
