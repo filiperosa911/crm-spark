@@ -3871,9 +3871,9 @@ async function exportarPDF() {
         margin: 0,
         filename: `planejamento-${clientName.toLowerCase()}-${new Date().toISOString().split('T')[0]}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
+        html2canvas: { scale: 2, useCORS: true, logging: false, windowWidth: 794 },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['css', 'legacy'] },
+        pagebreak: { mode: 'css' },
     };
 
     const element = document.createElement('div');
