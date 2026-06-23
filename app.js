@@ -1814,8 +1814,9 @@ async function resetUserPassword(userId) {
     if (supabaseMode === 'CLOUD' && supabaseClient && user.email) {
         const redirectTo = window.location.origin + window.location.pathname;
         const { error } = await supabaseClient.auth.resetPasswordForEmail(user.email, { redirectTo });
+        const errDetail = error ? (error.message || error.msg || JSON.stringify(error) || 'erro desconhecido') : '';
         const msg = error
-            ? `<div class="text-rose-400 text-[10px]">Erro ao enviar e-mail: ${error.message}</div>`
+            ? `<div class="text-rose-400 text-[10px]">Erro ao enviar e-mail: ${errDetail}</div>`
             : `<div class="space-y-1">
                 <div class="text-zinc-400 text-[10px]">E-mail de redefinição enviado para:</div>
                 <div class="text-emerald-400 font-bold text-sm">${user.email}</div>
@@ -2486,7 +2487,7 @@ async function requestPasswordReset() {
     const redirectTo = window.location.origin + window.location.pathname;
     const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
     if (error) {
-        alert('Erro ao enviar e-mail de recuperação: ' + error.message);
+        alert('Erro ao enviar e-mail de recuperação: ' + (error.message || JSON.stringify(error)));
     } else {
         alert(`E-mail de recuperação enviado para ${email}. Verifique sua caixa de entrada.`);
     }
