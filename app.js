@@ -909,6 +909,9 @@ function openLeadModal(leadId) {
     const taskForm = document.getElementById('add-task-form-container');
     const attachmentForm = document.getElementById('add-attachment-container');
 
+    const deleteBtn = document.getElementById('btn-delete-lead');
+    if (deleteBtn) deleteBtn.classList.toggle('hidden', !lead);
+
     if (lead) {
         document.getElementById('lead-modal-title').innerText = "Editar Lead";
         document.getElementById('lead-modal-id').value = lead.id;
@@ -962,6 +965,19 @@ function openLeadModal(leadId) {
 function closeLeadModal() {
     const modal = document.getElementById('lead-modal');
     if (modal) modal.classList.add('hidden');
+}
+
+function deleteLead() {
+    const idVal = document.getElementById('lead-modal-id').value;
+    if (!idVal) return;
+    const lead = db.leads.find(l => l.id === parseInt(idVal));
+    if (!lead) return;
+    if (!confirm(`Excluir o lead "${lead.name}" permanentemente?\nEsta ação não pode ser desfeita.`)) return;
+    db.leads = db.leads.filter(l => l.id !== parseInt(idVal));
+    saveDataStore(db);
+    closeLeadModal();
+    renderCRM();
+    logSystem(`Lead excluído: ${lead.name}`);
 }
 
 function saveLead(event) {
