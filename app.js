@@ -2946,7 +2946,7 @@ async function openPlanejamentoModal(planId = null) {
     // Popular select de clientes
     const clientSelect = document.getElementById('planning-client-code');
     const clients = db.clients || [];
-    const leads   = (db.leads || []).filter(l => l.status === 'fechado' && l.clientCode);
+    const leads   = (db.leads || []).filter(l => l.clientCode);
     const allClients = [
         ...clients.map(c => ({ code: c.code, name: c.name })),
         ...leads.filter(l => !clients.find(c => c.code === l.clientCode))
